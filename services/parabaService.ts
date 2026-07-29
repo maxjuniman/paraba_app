@@ -1,5 +1,4 @@
 import { api } from './api';
-import type { StudentCategoryId } from '@/constants/StudentCategories';
 import type { AuthPayload, SessionUser } from '@/utils/session';
 
 export type LoginBody = {
@@ -73,12 +72,13 @@ export type PresencaDiaAluno = Aluno & {
   presenca?: Presenca | null;
 };
 
-export type AulaCategoria = StudentCategoryId;
+export type AulaCategoria = 'kids' | 'juvenil' | 'adulto';
+export type AulaRecorrencia = 'avulsa' | 'recorrente';
 
 export type PresencaAulaDoDia = {
   aulaId: string;
   hora: string;
-  categoria: AulaCategoria;
+  categorias: AulaCategoria[];
   tipoAula: {
     id: string;
     nome: string;
@@ -142,9 +142,11 @@ export type TipoAula = {
 export type AulaCalendarioBody = {
   tipoAulaId?: string;
   novoTipoAula?: string;
-  diasSemana: number[];
+  recorrencia: AulaRecorrencia;
+  diasSemana?: number[];
+  data?: string;
   hora: string;
-  categoria: AulaCategoria;
+  categorias: AulaCategoria[];
 };
 
 export type AulaCalendario = {
@@ -153,7 +155,9 @@ export type AulaCalendario = {
   tipoAulaNome: string;
   diasSemana: number[];
   hora: string;
-  categoria: AulaCategoria;
+  categorias: AulaCategoria[];
+  recorrencia: AulaRecorrencia;
+  dataUnica?: string | null;
   createdAt: string;
 };
 
@@ -163,7 +167,8 @@ export type AulaCalendarioMes = {
   data: string;
   diaSemana: number;
   hora: string;
-  categoria: AulaCategoria;
+  categorias: AulaCategoria[];
+  recorrencia?: AulaRecorrencia;
   tipoAula: Pick<TipoAula, 'id' | 'nome'>;
   presentes?: {
     id: string;

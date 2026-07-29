@@ -5,12 +5,19 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { STUDENT_CATEGORY_FILTERS, type StudentCategoryId } from '@/constants/StudentCategories';
+import { STUDENT_CATEGORIES, type StudentCategory } from '@/constants/StudentCategories';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
-import { parabaService, type AulaCalendarioMes, type TipoAula } from '@/services/parabaService';
+import {
+  parabaService,
+  type AulaCategoria,
+  type AulaCalendarioMes,
+  type AulaRecorrencia,
+  type TipoAula,
+} from '@/services/parabaService';
+import { brDateToIso, formatDate } from '@/utils/formatters';
 import { getCurrentUser, type SessionUser } from '@/utils/session';
 
 const WEEK_DAYS = [
@@ -21,6 +28,11 @@ const WEEK_DAYS = [
   { id: 4, label: 'Quinta', shortLabel: 'Qui' },
   { id: 5, label: 'Sexta', shortLabel: 'Sex' },
   { id: 6, label: 'Sabado', shortLabel: 'Sab' },
+];
+
+const RECORRENCIA_OPTIONS: { id: AulaRecorrencia; label: string }[] = [
+  { id: 'recorrente', label: 'Recorrente' },
+  { id: 'avulsa', label: 'Avulsa' },
 ];
 
 type DayGroup = {
@@ -53,14 +65,17 @@ function formatMonth(month: string): string {
   return `${capitalized}/${year}`;
 }
 
-function formatDate(isoDate: string): string {
+function formatDateLabel(isoDate: string): string {
   const [year, month, day] = isoDate.split('-');
   if (!year || !month || !day) return isoDate;
   return `${day}/${month}/${year}`;
 }
 
-function categoryLabel(categoryId: StudentCategoryId): string {
-  return STUDENT_CATEGORY_FILTERS.find((category) => category.id === categoryId)?.label ?? 'Todos';
+function categoryLabels(categorias: AulaCategoria[]): string {
+  if (!categorias?.length) return 'Todas';
+  return categorias
+    .map((id) => STUDENT_CATEGORIES.find((category) => category.id === id)?.label ?? id)
+    .join(', ');
 }
 
 function dayLabel(dayId: number): string {
@@ -128,21 +143,38 @@ export default function CalendarioScreen() {
   const [month, setMonth] = useState(currentMonth());
   const [tiposAula, setTiposAula] = useState<TipoAula[]>([]);
   const [aulas, setAulas] = useState<AulaCalendarioMes[]>([]);
-  const [selectedTipoAulaId, setSelectedTipoAulaId] = useState('aula-avulsa');
+  const [selectedTipoAulaId, setSelectedTipoAulaId] = useState('');
   const [newTipoAula, setNewTipoAula] = useState('');
+  const [showNewTipoInput, setShowNewTipoInput] = useState(false);
+  const [recorrencia, setRecorrencia] = useState<AulaRecorrencia>('recorrente');
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [dataAvulsa, setDataAvulsa] = useState('');
   const [hora, setHora] = useState('');
-  const [categoria, setCategoria] = useState<StudentCategoryId>('all');
+  const [categorias, setCategorias] = useState<AulaCategoria[]>([]);
 
   const isProfessor = isProfessorUser(user);
-  const aulasPorDia = useMemo(() => groupAulasByDay(aulas), [aulas]);
+  const tiposAulaVisiveis = useMemo(
+    () =>
+      tiposAula.filter(
+        (tipo) => tipo.id !== 'aula-avulsa' && tipo.nome.trim().toLowerCase() !== 'aula avulsa'
+      ),
+    [tiposAula]
+  );
+  const aulasVisiveis = useMemo(() => {
+    if (isProfessor) return aulas;
+    return aulas.filter((aula) => !hasAulaOccurred(aula.data, aula.hora));
+  }, [aulas, isProfessor]);
+  const aulasPorDia = useMemo(() => groupAulasByDay(aulasVisiveis), [aulasVisiveis]);
 
   const resetForm = useCallback(() => {
     setNewTipoAula('');
+    setShowNewTipoInput(false);
     setSelectedDays([]);
+    setDataAvulsa('');
     setHora('');
-    setCategoria('all');
-    setSelectedTipoAulaId((previous) => previous || 'aula-avulsa');
+    setCategorias([]);
+    setRecorrencia('recorrente');
+    setSelectedTipoAulaId((previous) => previous || '');
   }, []);
 
   const load = useCallback(async () => {
@@ -156,7 +188,13 @@ export default function CalendarioScreen() {
       setUser(currentUser);
       setTiposAula(tipos);
       setAulas(calendario.aulas);
-      setSelectedTipoAulaId((previous) => previous || tipos[0]?.id || 'aula-avulsa');
+      const tiposVisiveis = tipos.filter(
+        (tipo) => tipo.id !== 'aula-avulsa' && tipo.nome.trim().toLowerCase() !== 'aula avulsa'
+      );
+      setSelectedTipoAulaId((previous) => {
+        if (previous && tiposVisiveis.some((tipo) => tipo.id === previous)) return previous;
+        return tiposVisiveis[0]?.id || '';
+      });
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar o calendario.'));
     } finally {
@@ -176,16 +214,29 @@ export default function CalendarioScreen() {
     );
   };
 
+  const toggleCategoria = (category: StudentCategory) => {
+    setCategorias((previous) =>
+      previous.includes(category.id)
+        ? previous.filter((item) => item !== category.id)
+        : [...previous, category.id]
+    );
+  };
+
   const saveClass = async () => {
     const trimmedNewType = newTipoAula.trim();
 
-    if (!trimmedNewType && !selectedTipoAulaId) {
-      showError('Informe o tipo de aula.');
+    if (showNewTipoInput) {
+      if (!trimmedNewType) {
+        showError('Informe o nome do novo tipo de aula.');
+        return;
+      }
+    } else if (!selectedTipoAulaId) {
+      showError('Selecione um tipo de aula.');
       return;
     }
 
-    if (selectedDays.length === 0) {
-      showError('Selecione ao menos um dia da semana.');
+    if (categorias.length === 0) {
+      showError('Selecione ao menos uma categoria.');
       return;
     }
 
@@ -194,14 +245,27 @@ export default function CalendarioScreen() {
       return;
     }
 
+    if (recorrencia === 'recorrente' && selectedDays.length === 0) {
+      showError('Selecione ao menos um dia da semana.');
+      return;
+    }
+
+    const dataIso = recorrencia === 'avulsa' ? brDateToIso(dataAvulsa) : undefined;
+    if (recorrencia === 'avulsa' && !dataIso) {
+      showError('Informe a data da aula avulsa no formato DD/MM/AAAA.');
+      return;
+    }
+
     try {
       setSaving(true);
       await parabaService.cadastrarAulaCalendario({
-        tipoAulaId: trimmedNewType ? undefined : selectedTipoAulaId,
-        novoTipoAula: trimmedNewType || undefined,
-        diasSemana: selectedDays,
+        tipoAulaId: showNewTipoInput ? undefined : selectedTipoAulaId,
+        novoTipoAula: showNewTipoInput ? trimmedNewType : undefined,
+        recorrencia,
+        diasSemana: recorrencia === 'recorrente' ? selectedDays : undefined,
+        data: dataIso ?? undefined,
         hora,
-        categoria,
+        categorias,
       });
       resetForm();
       setShowForm(false);
@@ -216,7 +280,9 @@ export default function CalendarioScreen() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingTop: topPadding }]}>
       <Text style={styles.title}>Calendario</Text>
-      <Text style={styles.subtitle}>Veja as aulas do mes e seus horarios.</Text>
+      <Text style={styles.subtitle}>
+        {isProfessor ? 'Veja as aulas do mes e seus horarios.' : 'Veja suas proximas aulas e horarios.'}
+      </Text>
 
       {isProfessor ? (
         <>
@@ -235,83 +301,143 @@ export default function CalendarioScreen() {
           </AppButton>
 
           {showForm ? (
-        <AppCard style={styles.card}>
-          <Text style={styles.cardTitle}>Cadastrar aula</Text>
+            <AppCard style={styles.card}>
+              <Text style={styles.cardTitle}>Cadastrar aula</Text>
 
-          <Text style={styles.label}>Tipo de aula</Text>
-          <View style={styles.chips}>
-            {tiposAula.map((tipo) => {
-              const selected = selectedTipoAulaId === tipo.id && !newTipoAula.trim();
-              return (
+              <Text style={styles.label}>Tipo de aula</Text>
+              <View style={styles.chips}>
+                {tiposAulaVisiveis.map((tipo) => {
+                  const selected = selectedTipoAulaId === tipo.id && !showNewTipoInput;
+                  return (
+                    <Pressable
+                      key={tipo.id}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => {
+                        setSelectedTipoAulaId(tipo.id);
+                        setNewTipoAula('');
+                        setShowNewTipoInput(false);
+                      }}
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{tipo.nome}</Text>
+                    </Pressable>
+                  );
+                })}
                 <Pressable
-                  key={tipo.id}
-                  style={[styles.chip, selected && styles.chipSelected]}
+                  style={[styles.addTipoChip, showNewTipoInput && styles.chipSelected]}
                   onPress={() => {
-                    setSelectedTipoAulaId(tipo.id);
-                    setNewTipoAula('');
+                    setShowNewTipoInput((previous) => {
+                      const next = !previous;
+                      if (!next) {
+                        setNewTipoAula('');
+                      } else {
+                        setSelectedTipoAulaId('');
+                      }
+                      return next;
+                    });
                   }}
                 >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{tipo.nome}</Text>
+                  <Ionicons name="add" size={18} color={showNewTipoInput ? Theme.white : Theme.primary} />
                 </Pressable>
-              );
-            })}
-          </View>
+              </View>
 
-          <TextInput
-            style={styles.input}
-            value={newTipoAula}
-            onChangeText={setNewTipoAula}
-            placeholder="Criar novo tipo de aula"
-            placeholderTextColor={Theme.textMuted}
-          />
+              {showNewTipoInput ? (
+                <TextInput
+                  style={styles.input}
+                  value={newTipoAula}
+                  onChangeText={setNewTipoAula}
+                  placeholder="Criar novo tipo de aula"
+                  placeholderTextColor={Theme.textMuted}
+                  autoFocus
+                />
+              ) : null}
 
-          <Text style={styles.label}>Dia da semana</Text>
-          <View style={styles.chips}>
-            {WEEK_DAYS.map((day) => {
-              const selected = selectedDays.includes(day.id);
-              return (
-                <Pressable
-                  key={day.id}
-                  style={[styles.dayChip, selected && styles.chipSelected]}
-                  onPress={() => toggleDay(day.id)}
-                >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{day.shortLabel}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+              <Text style={styles.label}>Recorrencia</Text>
+              <View style={styles.chips}>
+                {RECORRENCIA_OPTIONS.map((option) => {
+                  const selected = recorrencia === option.id;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => {
+                        setRecorrencia(option.id);
+                        if (option.id === 'avulsa') {
+                          setSelectedDays([]);
+                        } else {
+                          setDataAvulsa('');
+                        }
+                      }}
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-          <Text style={styles.label}>Hora</Text>
-          <TextInput
-            style={styles.input}
-            value={hora}
-            onChangeText={(value) => setHora(normalizeHour(value))}
-            placeholder="19:30"
-            placeholderTextColor={Theme.textMuted}
-            keyboardType="numeric"
-            maxLength={5}
-          />
+              {recorrencia === 'recorrente' ? (
+                <>
+                  <Text style={styles.label}>Dia da semana</Text>
+                  <View style={styles.chips}>
+                    {WEEK_DAYS.map((day) => {
+                      const selected = selectedDays.includes(day.id);
+                      return (
+                        <Pressable
+                          key={day.id}
+                          style={[styles.dayChip, selected && styles.chipSelected]}
+                          onPress={() => toggleDay(day.id)}
+                        >
+                          <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{day.shortLabel}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>Data da aula</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={dataAvulsa}
+                    onChangeText={(value) => setDataAvulsa(formatDate(value))}
+                    placeholder="DD/MM/AAAA"
+                    placeholderTextColor={Theme.textMuted}
+                    keyboardType="numeric"
+                    maxLength={10}
+                  />
+                </>
+              )}
 
-          <Text style={styles.label}>Categoria</Text>
-          <View style={styles.chips}>
-            {STUDENT_CATEGORY_FILTERS.map((category) => {
-              const selected = categoria === category.id;
-              return (
-                <Pressable
-                  key={category.id}
-                  style={[styles.chip, selected && styles.chipSelected]}
-                  onPress={() => setCategoria(category.id)}
-                >
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{category.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+              <Text style={styles.label}>Hora</Text>
+              <TextInput
+                style={styles.input}
+                value={hora}
+                onChangeText={(value) => setHora(normalizeHour(value))}
+                placeholder="19:30"
+                placeholderTextColor={Theme.textMuted}
+                keyboardType="numeric"
+                maxLength={5}
+              />
 
-          <AppButton onPress={saveClass} loading={saving}>
-            Salvar aula
-          </AppButton>
-        </AppCard>
+              <Text style={styles.label}>Categorias</Text>
+              <View style={styles.chips}>
+                {STUDENT_CATEGORIES.map((category) => {
+                  const selected = categorias.includes(category.id);
+                  return (
+                    <Pressable
+                      key={category.id}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => toggleCategoria(category)}
+                    >
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{category.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <AppButton onPress={saveClass} loading={saving}>
+                Salvar aula
+              </AppButton>
+            </AppCard>
           ) : null}
         </>
       ) : null}
@@ -329,13 +455,15 @@ export default function CalendarioScreen() {
       {loading ? <ActivityIndicator color={Theme.primary} /> : null}
 
       {!loading && aulasPorDia.length === 0 ? (
-        <Text style={styles.empty}>Nenhuma aula cadastrada para este mes.</Text>
+        <Text style={styles.empty}>
+          {isProfessor ? 'Nenhuma aula cadastrada para este mes.' : 'Nenhuma aula proxima neste mes.'}
+        </Text>
       ) : null}
 
       {aulasPorDia.map((group) => (
         <AppCard key={group.data} style={styles.dayCard}>
           <View style={styles.dayHeader}>
-            <Text style={styles.dayTitle}>{formatDate(group.data)}</Text>
+            <Text style={styles.dayTitle}>{formatDateLabel(group.data)}</Text>
             <Text style={styles.daySubtitle}>{dayLabel(group.diaSemana)}</Text>
           </View>
 
@@ -348,8 +476,13 @@ export default function CalendarioScreen() {
                 <Text style={styles.lessonHour}>{aula.hora}</Text>
                 <View style={styles.lessonInfo}>
                   <Text style={styles.lessonTitle}>{aula.tipoAula.nome}</Text>
-                  <Text style={styles.lessonMeta}>{categoryLabel(aula.categoria)}</Text>
-                  {hasAulaOccurred(aula.data, aula.hora) ? (
+                  <Text style={styles.lessonMeta}>{categoryLabels(aula.categorias ?? [])}</Text>
+                  {aula.recorrencia ? (
+                    <Text style={styles.lessonMeta}>
+                      {aula.recorrencia === 'avulsa' ? 'Avulsa' : 'Recorrente'}
+                    </Text>
+                  ) : null}
+                  {isProfessor && hasAulaOccurred(aula.data, aula.hora) ? (
                     <Text style={styles.lessonPresentes}>
                       Presentes ({aula.totalPresentes ?? 0}): {formatPresentes(aula.presentes)}
                     </Text>
@@ -419,6 +552,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
+  },
+  addTipoChip: {
+    alignItems: 'center',
+    borderColor: Theme.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
   },
   dayChip: {
     alignItems: 'center',

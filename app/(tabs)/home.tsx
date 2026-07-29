@@ -150,7 +150,7 @@ export default function HomeScreen() {
         {loadedUser && !isProfessor ? (
           <TouchableOpacity activeOpacity={0.82} style={styles.summaryCard} onPress={() => router.push('/equipe')}>
             <View style={styles.authorizationHeader}>
-              <Ionicons name="shield" size={24} color={Theme.primary} />
+              <Image source={require('../../assets/img/logo.png')} style={styles.logo} resizeMode="contain" />
               <Text style={styles.cardTitle}>Equipe</Text>
             </View>
             <Text style={styles.cardText}>
@@ -245,6 +245,10 @@ const styles = StyleSheet.create({
     right: 0,
     top: 190,
     width: '100%',
+  },
+  logo: {
+    height: 40,
+    width: 40,
   },
   scroll: {
     flex: 1,

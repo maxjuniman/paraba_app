@@ -39,6 +39,21 @@ function categoryLabel(categoria: string): string {
   return STUDENT_CATEGORY_FILTERS.find((item) => item.id === categoria)?.label ?? categoria;
 }
 
+function resolveCategorias(aula: PresencaAulaDoDia & { categoria?: string }): string[] {
+  if (Array.isArray(aula.categorias) && aula.categorias.length > 0) {
+    return aula.categorias;
+  }
+  if (aula.categoria && aula.categoria !== 'all') {
+    return [aula.categoria];
+  }
+  return [];
+}
+
+function categoryLabels(categorias?: string[] | null): string {
+  if (!categorias?.length) return 'Todas';
+  return categorias.map((categoria) => categoryLabel(categoria)).join(', ');
+}
+
 export default function PresencasScreen() {
   const topPadding = useScreenTopPadding();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
@@ -155,7 +170,7 @@ export default function PresencasScreen() {
                     {aula.hora} · {aula.tipoAula.nome}
                   </Text>
                   <Text style={[styles.aulaChipMeta, selected && styles.aulaChipTextSelected]}>
-                    {categoryLabel(aula.categoria)}
+                    {categoryLabels(resolveCategorias(aula))}
                   </Text>
                 </Pressable>
               );

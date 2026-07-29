@@ -5,6 +5,7 @@
     "owner": "maxjuniman",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/img/logo.png",
     "scheme": "equipe-paraba",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -22,11 +23,16 @@
     "android": {
       "versionCode": 1,
       "edgeToEdgeEnabled": true,
-      "package": "br.com.paraba"
+      "package": "br.com.paraba",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/img/logo.png",
+        "backgroundColor": "#FFFFFF"
+      }
     },
     "web": {
       "bundler": "metro",
-      "output": "static"
+      "output": "static",
+      "favicon": "./assets/img/logo.png"
     },
     "plugins": [
       "expo-router",
@@ -54,6 +60,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/img/logo.png",
           "color": "#000000",
           "defaultChannel": "paraba-default"
         }
