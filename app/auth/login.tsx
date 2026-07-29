@@ -14,11 +14,14 @@ import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService } from '@/services/parabaService';
 import { persistSession } from '@/utils/session';
+import { syncPushTokenIfGranted } from '@/utils/registerPushNotifications';
 
 export default function LoginScreen() {
+  const topPadding = useScreenTopPadding();
   const router = useRouter();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [showPassword, setShowPassword] = useState(false);
@@ -46,6 +49,9 @@ export default function LoginScreen() {
         senha: form.senha,
       });
       await persistSession(session);
+      void syncPushTokenIfGranted().catch(() => {
+        // Falha de push nao deve bloquear o login.
+      });
       router.replace('/home');
     } catch (error) {
       showError(apiErrorMessage(error, 'Falha ao entrar.'), 'Falha no login');
@@ -55,7 +61,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topPadding }]}>
       <TouchableOpacity style={styles.backRow} onPress={() => router.replace('/')} hitSlop={12}>
         <Ionicons name="chevron-back" size={22} color={Theme.primary} />
         <Text style={styles.backText}>Voltar</Text>
@@ -116,7 +122,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Theme.background,
     padding: 24,
-    paddingTop: 64,
   },
   backRow: {
     flexDirection: 'row',

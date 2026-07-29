@@ -15,15 +15,24 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService, type VideoUpdate } from '@/services/parabaService';
 import { getCurrentUser, type SessionUser } from '@/utils/session';
 
+function isProfessorUser(user?: SessionUser | null): boolean {
+  return user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
+}
+
+const VIDEOS_ENABLED = false;
+
 export default function VideosScreen() {
+  const topPadding = useScreenTopPadding();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [loadedUser, setLoadedUser] = useState(false);
   const [videos, setVideos] = useState<VideoUpdate[]>([]);
   const [form, setForm] = useState({
     titulo: '',
@@ -33,9 +42,17 @@ export default function VideosScreen() {
   });
 
   const load = useCallback(async () => {
+    if (!VIDEOS_ENABLED) return;
+
     try {
       setLoading(true);
-      setUser(await getCurrentUser());
+      const current = await getCurrentUser();
+      setUser(current);
+      setLoadedUser(true);
+      if (!isProfessorUser(current)) {
+        setVideos([]);
+        return;
+      }
       setVideos(await parabaService.listarVideos());
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar os videos.'));
@@ -44,7 +61,7 @@ export default function VideosScreen() {
     }
   }, [showError]);
 
-  const isProfessor = user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
+  const isProfessor = isProfessorUser(user);
 
   useFocusEffect(
     useCallback(() => {
@@ -80,14 +97,38 @@ export default function VideosScreen() {
     }
   };
 
+  if (!VIDEOS_ENABLED) {
+    return (
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingTop: topPadding }]}>
+        <Text style={styles.title}>Videos</Text>
+        <Text style={styles.subtitle}>Esta area esta desabilitada no momento.</Text>
+        <AppCard style={styles.formCard}>
+          <Text style={styles.cardTitle}>Recurso em pausa</Text>
+          <Text style={styles.videoText}>A publicacao e listagem de videos sera reativada em uma etapa futura.</Text>
+        </AppCard>
+      </ScrollView>
+    );
+  }
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Videos</Text>
       <Text style={styles.subtitle}>
         {isProfessor
           ? 'Publique atualizacoes gerais ou vincule um video a um aluno especifico.'
-          : 'Acompanhe as atualizacoes publicadas pelo professor.'}
+          : 'Esta area esta liberada apenas para usuarios tipo 1 por enquanto.'}
       </Text>
+
+      {loadedUser && !isProfessor ? (
+        <AppCard style={styles.formCard}>
+          <Text style={styles.cardTitle}>Area em preparacao</Text>
+          <Text style={styles.videoText}>A parte do usuario tipo 2 sera feita em uma proxima etapa.</Text>
+        </AppCard>
+      ) : null}
 
       {isProfessor ? (
         <AppCard style={styles.formCard}>
@@ -161,7 +202,6 @@ const styles = StyleSheet.create({
   container: {
     gap: 16,
     padding: 20,
-    paddingTop: 58,
   },
   title: {
     color: Theme.text,

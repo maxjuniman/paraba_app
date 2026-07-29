@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Paraba",
-    "slug": "paraba",
+    "name": "Equipe Paraba",
+    "slug": "equipe-paraba",
     "owner": "maxjuniman",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "paraba",
+    "scheme": "equipe-paraba",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -33,6 +33,7 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/img/logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
@@ -42,6 +43,19 @@
         "expo-secure-store",
         {
           "faceIDPermission": "Precisamos do Face ID para autenticação segura"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Precisamos acessar suas fotos para adicionar a foto do aluno."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#000000",
+          "defaultChannel": "paraba-default"
         }
       ],
       "expo-font",
@@ -56,7 +70,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "76b7dbe7-8eee-445f-9504-5ecc7869d93d"
       },
       "router": {}
     },

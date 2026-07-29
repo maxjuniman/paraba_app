@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { StudentCategoryId } from '@/constants/StudentCategories';
 import type { AuthPayload, SessionUser } from '@/utils/session';
 
 export type LoginBody = {
@@ -22,9 +23,10 @@ export type RegisterResponse = {
 export type AlunoBody = {
   nome: string;
   apelido?: string;
+  foto?: string;
   emailResponsavel?: string;
   celular?: string;
-  dataNascimento?: string;
+  dataNascimento: string;
   dataPagamento?: string;
   faixaAtual?: string;
   graus?: number;
@@ -34,6 +36,7 @@ export type Aluno = {
   id: string;
   nome: string;
   apelido?: string | null;
+  foto?: string | null;
   emailResponsavel?: string;
   celular?: string;
   dataNascimento?: string;
@@ -51,10 +54,15 @@ export type Aluno = {
   createdAt?: string;
 };
 
+export type EquipeAluno = Pick<Aluno, 'id' | 'nome' | 'apelido' | 'foto' | 'dataNascimento' | 'faixaAtual' | 'graus'> & {
+  isMe?: boolean;
+};
+
 export type Presenca = {
   id: string;
   alunoId: string;
   data: string;
+  aulaId?: string | null;
   presente: boolean;
   markedAt: string;
   markedByUserId?: string | null;
@@ -65,8 +73,22 @@ export type PresencaDiaAluno = Aluno & {
   presenca?: Presenca | null;
 };
 
+export type AulaCategoria = StudentCategoryId;
+
+export type PresencaAulaDoDia = {
+  aulaId: string;
+  hora: string;
+  categoria: AulaCategoria;
+  tipoAula: {
+    id: string;
+    nome: string;
+  };
+};
+
 export type PresencaDia = {
   data: string;
+  aulas: PresencaAulaDoDia[];
+  aulaSelecionada?: PresencaAulaDoDia | null;
   alunos: PresencaDiaAluno[];
 };
 
@@ -109,6 +131,51 @@ export type VideoUpdate = {
   url: string;
   alunoId?: string | null;
   createdAt?: string;
+};
+
+export type TipoAula = {
+  id: string;
+  nome: string;
+  createdAt: string;
+};
+
+export type AulaCalendarioBody = {
+  tipoAulaId?: string;
+  novoTipoAula?: string;
+  diasSemana: number[];
+  hora: string;
+  categoria: AulaCategoria;
+};
+
+export type AulaCalendario = {
+  id: string;
+  tipoAulaId: string;
+  tipoAulaNome: string;
+  diasSemana: number[];
+  hora: string;
+  categoria: AulaCategoria;
+  createdAt: string;
+};
+
+export type AulaCalendarioMes = {
+  id: string;
+  aulaId: string;
+  data: string;
+  diaSemana: number;
+  hora: string;
+  categoria: AulaCategoria;
+  tipoAula: Pick<TipoAula, 'id' | 'nome'>;
+  presentes?: {
+    id: string;
+    nome: string;
+    apelido?: string | null;
+  }[];
+  totalPresentes?: number;
+};
+
+export type CalendarioMes = {
+  mes: string;
+  aulas: AulaCalendarioMes[];
 };
 
 type RawAuthPayload = {
@@ -181,8 +248,40 @@ export const parabaService = {
     return Array.isArray(data) ? data : data.data ?? [];
   },
 
+  async listarEquipe(): Promise<EquipeAluno[]> {
+    const { data } = await api.get<{ data?: EquipeAluno[] } | EquipeAluno[]>('/equipe');
+    return Array.isArray(data) ? data : data.data ?? [];
+  },
+
+  async atualizarMinhaFotoEquipe(foto: string | null): Promise<EquipeAluno> {
+    const { data } = await api.patch<{ data?: EquipeAluno } | EquipeAluno>('/equipe/me/foto', { foto });
+    return unwrapData<EquipeAluno>(data);
+  },
+
+  async listarTiposAula(): Promise<TipoAula[]> {
+    const { data } = await api.get<{ data?: TipoAula[] } | TipoAula[]>('/calendario/tipos');
+    return Array.isArray(data) ? data : data.data ?? [];
+  },
+
+  async listarCalendarioMes(mes: string): Promise<CalendarioMes> {
+    const { data } = await api.get<{ data?: CalendarioMes } | CalendarioMes>('/calendario', {
+      params: { mes },
+    });
+    return unwrapData<CalendarioMes>(data);
+  },
+
+  async cadastrarAulaCalendario(body: AulaCalendarioBody): Promise<AulaCalendario> {
+    const { data } = await api.post<{ data?: AulaCalendario } | AulaCalendario>('/calendario/aulas', body);
+    return unwrapData<AulaCalendario>(data);
+  },
+
   async cadastrarAluno(body: AlunoBody): Promise<Aluno> {
     const { data } = await api.post<{ data?: Aluno } | Aluno>('/alunos', body);
+    return unwrapData<Aluno>(data);
+  },
+
+  async atualizarAluno(alunoId: string, body: AlunoBody): Promise<Aluno> {
+    const { data } = await api.patch<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}`, body);
     return unwrapData<Aluno>(data);
   },
 
@@ -213,17 +312,28 @@ export const parabaService = {
     return unwrapData<Aluno>(data);
   },
 
-  async listarPresencas(dataPresenca: string): Promise<PresencaDia> {
+  async salvarPushToken(token: string): Promise<void> {
+    await api.put('/devices/push-token', { token });
+  },
+
+  async listarPresencas(dataPresenca: string, aulaId?: string): Promise<PresencaDia> {
     const { data } = await api.get<{ data?: PresencaDia } | PresencaDia>('/presencas', {
-      params: { data: dataPresenca },
+      params: {
+        data: dataPresenca,
+        ...(aulaId ? { aulaId } : {}),
+      },
     });
     return unwrapData<PresencaDia>(data);
   },
 
-  async alternarPresenca(dataPresenca: string, alunoId: string): Promise<{ aluno: PresencaDiaAluno; presenca: Presenca }> {
+  async alternarPresenca(
+    dataPresenca: string,
+    aulaId: string,
+    alunoId: string
+  ): Promise<{ aluno: PresencaDiaAluno; presenca: Presenca }> {
     const { data } = await api.patch<
       { data?: { aluno: PresencaDiaAluno; presenca: Presenca } } | { aluno: PresencaDiaAluno; presenca: Presenca }
-    >(`/presencas/${dataPresenca}/alunos/${alunoId}/toggle`);
+    >(`/presencas/${dataPresenca}/aulas/${aulaId}/alunos/${alunoId}/toggle`);
     return unwrapData<{ aluno: PresencaDiaAluno; presenca: Presenca }>(data);
   },
 

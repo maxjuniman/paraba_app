@@ -1,14 +1,19 @@
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
+import { AnimatedSplash } from '@/components/ui/AnimatedSplash';
 import { Theme } from '@/constants/Theme';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { hasSession } from '@/utils/session';
 
 export default function WelcomeScreen() {
+  const topPadding = useScreenTopPadding();
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const [splashFinished, setSplashFinished] = useState(false);
+  const [shouldRedirectHome, setShouldRedirectHome] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -17,7 +22,7 @@ export default function WelcomeScreen() {
       const logged = await hasSession();
       if (!active) return;
       if (logged) {
-        router.replace('/home');
+        setShouldRedirectHome(true);
         return;
       }
       setChecking(false);
@@ -26,18 +31,32 @@ export default function WelcomeScreen() {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
+
+  useEffect(() => {
+    if (splashFinished && shouldRedirectHome) {
+      router.replace('/home');
+    }
+  }, [router, shouldRedirectHome, splashFinished]);
+
+  const finishSplash = useCallback(() => {
+    setSplashFinished(true);
+  }, []);
+
+  if (!splashFinished) {
+    return <AnimatedSplash onFinish={finishSplash} />;
+  }
 
   if (checking) {
     return (
-      <View style={[styles.container, styles.center]}>
+      <View style={[styles.container, styles.center, { paddingTop: topPadding }]}>
         <ActivityIndicator color={Theme.primary} size="large" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topPadding }]}>
       <View style={styles.logoArea}>
         <Image source={require('../assets/img/logo.png')} style={styles.logo} resizeMode="contain" />
       </View>
@@ -60,7 +79,6 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.background,
     paddingHorizontal: 24,
     paddingBottom: 42,
-    paddingTop: 42,
   },
   center: {
     alignItems: 'center',

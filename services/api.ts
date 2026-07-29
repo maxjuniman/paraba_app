@@ -28,7 +28,8 @@ api.interceptors.request.use(async (config) => {
 export function apiErrorMessage(error: unknown, fallback = 'Nao foi possivel concluir a operacao.'): string {
   if (isAxiosError(error)) {
     const data = error.response?.data as { message?: string; error?: string } | undefined;
-    return data?.message || data?.error || error.message || fallback;
+    const detail = data?.error && data.error !== data.message ? ` (${data.error})` : '';
+    return (data?.message || data?.error || error.message || fallback) + detail;
   }
 
   return error instanceof Error ? error.message : fallback;

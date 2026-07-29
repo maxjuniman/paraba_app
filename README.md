@@ -18,26 +18,46 @@ EXPO_PUBLIC_PARABA_API_URL=https://api.seudominio.com.br/api
 
 ## Fluxos implementados
 
-- Login e cadastro de usuario.
+- Login de usuario tipo 1 e tipo 2 autorizado.
+- Cadastro de usuario tipo 2 para autorizacao pelo professor.
+- Tela `Equipe` exclusiva para tipo 2, com foto, filtros por nome/categoria e nascimento com idade.
 - Cadastro de aluno pelo professor.
-- Vinculo aluno/usuario via `aluno_id` enviado no cadastro do usuario.
+- Edicao do aluno ao tocar no card da listagem.
+- Foto opcional no cadastro de aluno, exibida no card do aluno.
+- Data de nascimento obrigatoria no cadastro de aluno.
+- Filtro de alunos por nome e categoria calculada por idade.
+- Alerta na Home com aniversariantes do mes, dia e idade que fazem.
+- Vinculo aluno/usuario preparado para a etapa futura do tipo 2.
 - Atualizacao de data de pagamento por aluno.
+- Filtro de pagamentos por `Pago`, `Em aberto` e `Em atraso`.
 - Lista de presenca diaria com toque no aluno para marcar/desmarcar presenca.
 - Resumo de presencas nas informacoes do aluno.
-- Publicacao e listagem de atualizacoes em video.
+- Videos ficam desabilitados no momento.
+
+As telas administrativas ficam visiveis apenas para usuarios tipo 1. A tela `Equipe` aparece apenas para usuarios tipo 2.
 
 ## Endpoints esperados
 
 - `POST /auth/login`
 - `POST /auth/register`
+- `GET /equipe`
 - `GET /alunos`
 - `POST /alunos`
+- `PATCH /alunos/:alunoId`
 - `POST /alunos/:id/vincular-user`
 - `PATCH /alunos/:id/pagamento`
 - `GET /presencas?data=AAAA-MM-DD`
 - `PATCH /presencas/:data/alunos/:alunoId/toggle`
 - `GET /videos`
 - `POST /videos`
+
+## Categorias de alunos
+
+Os limites ficam em `constants/StudentCategories.ts`:
+
+- `kids`: 0 a 10 anos.
+- `juvenil`: 11 a 18 anos.
+- `adulto`: 19 anos ou mais.
 
 ## Expo Updates
 

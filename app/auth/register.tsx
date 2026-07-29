@@ -2,8 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
+  Image,
   Keyboard,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,15 +17,19 @@ import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService } from '@/services/parabaService';
 import { formatPhone, normalizePhoneWithBrazilCode } from '@/utils/formatters';
 
 export default function RegisterScreen() {
+  const topPadding = useScreenTopPadding();
   const router = useRouter();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [successVisible, setSuccessVisible] = useState(false);
   const [form, setForm] = useState({
     nome: '',
     email: '',
@@ -61,12 +66,8 @@ export default function RegisterScreen() {
         senha: form.senha,
         confirmacao_senha: form.confirmacaoSenha,
       });
-      Alert.alert('Cadastro enviado', response.message, [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/auth/login'),
-        },
-      ]);
+      setSuccessMessage(response.message);
+      setSuccessVisible(true);
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel criar sua conta.'), 'Falha no cadastro');
     } finally {
@@ -75,95 +76,116 @@ export default function RegisterScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-    >
-      <TouchableOpacity style={styles.backRow} onPress={() => router.back()} hitSlop={12}>
-        <Ionicons name="chevron-back" size={22} color={Theme.primary} />
-        <Text style={styles.backText}>Voltar</Text>
-      </TouchableOpacity>
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableOpacity style={styles.backRow} onPress={() => router.back()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={22} color={Theme.primary} />
+          <Text style={styles.backText}>Voltar</Text>
+        </TouchableOpacity>
 
-      <Text style={styles.title}>Criar conta</Text>
-      <Text style={styles.subtitle}>
-        Depois do cadastro, aguarde o professor autorizar seu acesso e vincular seu aluno.
-      </Text>
+        <Text style={styles.title}>Criar conta</Text>
+        <Text style={styles.subtitle}>
+          Depois do cadastro, aguarde o professor autorizar seu acesso e vincular seu aluno.
+        </Text>
 
-      <Text style={styles.label}>Nome completo</Text>
-      <TextInput
-        style={styles.input}
-        value={form.nome}
-        onChangeText={(nome) => setForm((previous) => ({ ...previous, nome }))}
-        placeholder="Seu nome"
-        placeholderTextColor={Theme.textMuted}
-      />
-
-      <Text style={styles.label}>E-mail</Text>
-      <TextInput
-        style={styles.input}
-        value={form.email}
-        onChangeText={(email) => setForm((previous) => ({ ...previous, email }))}
-        placeholder="voce@email.com"
-        placeholderTextColor={Theme.textMuted}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-
-      <Text style={styles.label}>Celular</Text>
-      <TextInput
-        style={styles.input}
-        value={form.celular}
-        onChangeText={(celular) => setForm((previous) => ({ ...previous, celular: formatPhone(celular) }))}
-        placeholder="(51) 99999-9999"
-        placeholderTextColor={Theme.textMuted}
-        keyboardType="phone-pad"
-        maxLength={16}
-      />
-
-      <Text style={styles.label}>Senha</Text>
-      <View style={styles.passwordBox}>
+        <Text style={styles.label}>Nome completo</Text>
         <TextInput
-          style={styles.passwordInput}
-          value={form.senha}
-          onChangeText={(senha) => setForm((previous) => ({ ...previous, senha }))}
-          placeholder="Minimo 6 caracteres"
+          style={styles.input}
+          value={form.nome}
+          onChangeText={(nome) => setForm((previous) => ({ ...previous, nome }))}
+          placeholder="Seu nome"
           placeholderTextColor={Theme.textMuted}
-          secureTextEntry={!showPassword}
         />
-        <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
-          <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color={Theme.primary} />
-        </Pressable>
-      </View>
 
-      <Text style={styles.label}>Confirmar senha</Text>
-      <View style={styles.passwordBox}>
+        <Text style={styles.label}>E-mail</Text>
         <TextInput
-          style={styles.passwordInput}
-          value={form.confirmacaoSenha}
-          onChangeText={(confirmacaoSenha) =>
-            setForm((previous) => ({ ...previous, confirmacaoSenha }))
-          }
-          placeholder="Repita sua senha"
+          style={styles.input}
+          value={form.email}
+          onChangeText={(email) => setForm((previous) => ({ ...previous, email }))}
+          placeholder="voce@email.com"
           placeholderTextColor={Theme.textMuted}
-          secureTextEntry
+          keyboardType="email-address"
+          autoCapitalize="none"
         />
-        <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
-          <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color={Theme.primary} />
-        </Pressable>
-      </View>
 
-      <AppButton loading={loading} onPress={submit}>
-        Criar conta
-      </AppButton>
+        <Text style={styles.label}>Celular</Text>
+        <TextInput
+          style={styles.input}
+          value={form.celular}
+          onChangeText={(celular) => setForm((previous) => ({ ...previous, celular: formatPhone(celular) }))}
+          placeholder="(51) 99999-9999"
+          placeholderTextColor={Theme.textMuted}
+          keyboardType="phone-pad"
+          maxLength={16}
+        />
 
-      <AlertError
-        visible={errorVisible}
-        message={errorMessage}
-        title={errorTitle}
-        onClose={hideError}
-      />
-    </ScrollView>
+        <Text style={styles.label}>Senha</Text>
+        <View style={styles.passwordBox}>
+          <TextInput
+            style={styles.passwordInput}
+            value={form.senha}
+            onChangeText={(senha) => setForm((previous) => ({ ...previous, senha }))}
+            placeholder="Minimo 6 caracteres"
+            placeholderTextColor={Theme.textMuted}
+            secureTextEntry={!showPassword}
+          />
+          <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
+            <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color={Theme.primary} />
+          </Pressable>
+        </View>
+
+        <Text style={styles.label}>Confirmar senha</Text>
+        <View style={styles.passwordBox}>
+          <TextInput
+            style={styles.passwordInput}
+            value={form.confirmacaoSenha}
+            onChangeText={(confirmacaoSenha) =>
+              setForm((previous) => ({ ...previous, confirmacaoSenha }))
+            }
+            placeholder="Repita sua senha"
+            placeholderTextColor={Theme.textMuted}
+            secureTextEntry
+          />
+          <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
+            <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={22} color={Theme.primary} />
+          </Pressable>
+        </View>
+
+        <AppButton loading={loading} onPress={submit}>
+          Criar conta
+        </AppButton>
+
+        <AlertError
+          visible={errorVisible}
+          message={errorMessage}
+          title={errorTitle}
+          onClose={hideError}
+        />
+      </ScrollView>
+
+      <Modal transparent visible={successVisible} animationType="fade" onRequestClose={() => setSuccessVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.successModal}>
+            <Image source={require('../../assets/img/logo.png')} style={styles.modalLogo} resizeMode="contain" />
+            <Text style={styles.modalTitle}>osss</Text>
+            <Text style={styles.modalSubtitle}>Cadastro enviado</Text>
+            <Text style={styles.modalMessage}>{successMessage}</Text>
+            <AppButton
+              onPress={() => {
+                setSuccessVisible(false);
+                router.replace('/auth/login');
+              }}
+            >
+              Ir para login
+            </AppButton>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -175,7 +197,6 @@ const styles = StyleSheet.create({
   container: {
     padding: 24,
     paddingBottom: 42,
-    paddingTop: 64,
   },
   backRow: {
     flexDirection: 'row',
@@ -232,5 +253,44 @@ const styles = StyleSheet.create({
     color: Theme.text,
     flex: 1,
     fontSize: 16,
+  },
+  modalOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.48)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  successModal: {
+    alignItems: 'center',
+    backgroundColor: Theme.white,
+    borderRadius: 24,
+    gap: 12,
+    maxWidth: 420,
+    padding: 24,
+    width: '100%',
+  },
+  modalLogo: {
+    height: 110,
+    width: 160,
+  },
+  modalTitle: {
+    color: Theme.primary,
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  modalSubtitle: {
+    color: Theme.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modalMessage: {
+    color: Theme.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 6,
+    textAlign: 'center',
   },
 });

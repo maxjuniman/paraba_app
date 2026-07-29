@@ -1,7 +1,8 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Pressable,
   ScrollView,
@@ -13,14 +14,22 @@ import {
 import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
+import {
+  getStudentCategoryByBirthDate,
+  STUDENT_CATEGORY_FILTERS,
+  type StudentCategoryId,
+} from '@/constants/StudentCategories';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService, type Aluno } from '@/services/parabaService';
 import { brDateToIso, formatDate, formatPhone } from '@/utils/formatters';
+import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
 const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
 const GRAUS = [0, 1, 2, 3, 4];
+const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
 
 function normalizePaymentDay(value: string): string {
   return value.replace(/\D/g, '').slice(0, 2);
@@ -33,20 +42,32 @@ function isValidPaymentDay(value: string): boolean {
 
 function isoToBrDate(value?: string | null): string {
   if (!value) return 'nenhuma';
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) return value;
+  const dateOnly = value.trim().slice(0, 10);
+  const [year, month, day] = dateOnly.split('-');
+  if (!year || !month || !day || year.length !== 4) return value;
   return `${day}/${month}/${year}`;
+}
+
+function isoToFormDate(value?: string | null): string {
+  if (!value) return '';
+  const brDate = isoToBrDate(value);
+  return brDate === 'nenhuma' ? '' : brDate;
 }
 
 export default function AlunosScreen() {
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
+  const topPadding = useScreenTopPadding();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
+  const [editingAlunoId, setEditingAlunoId] = useState<string | null>(null);
+  const [nameFilter, setNameFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<StudentCategoryId>('all');
   const [form, setForm] = useState({
     nome: '',
     apelido: '',
+    foto: '',
     emailResponsavel: '',
     celular: '',
     dataNascimento: '',
@@ -54,6 +75,21 @@ export default function AlunosScreen() {
     faixaAtual: '',
     graus: 0,
   });
+
+  const resetForm = useCallback(() => {
+    setEditingAlunoId(null);
+    setForm({
+      nome: '',
+      apelido: '',
+      foto: '',
+      emailResponsavel: '',
+      celular: '',
+      dataNascimento: '',
+      dataPagamento: '',
+      faixaAtual: '',
+      graus: 0,
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -79,8 +115,8 @@ export default function AlunosScreen() {
       return;
     }
 
-    const dataNascimento = form.dataNascimento ? brDateToIso(form.dataNascimento) : null;
-    if (form.dataNascimento && !dataNascimento) {
+    const dataNascimento = brDateToIso(form.dataNascimento);
+    if (!dataNascimento) {
       showError('Informe a data de nascimento no formato DD/MM/AAAA.');
       return;
     }
@@ -93,49 +129,121 @@ export default function AlunosScreen() {
 
     try {
       setSaving(true);
-      const aluno = await parabaService.cadastrarAluno({
+      const alunoBody = {
         nome: form.nome.trim(),
         apelido: form.apelido.trim() || undefined,
+        foto: form.foto || undefined,
         emailResponsavel: form.emailResponsavel.trim() || undefined,
         celular: form.celular.trim() || undefined,
-        dataNascimento: dataNascimento ?? undefined,
+        dataNascimento,
         dataPagamento: dataPagamento || undefined,
         faixaAtual: form.faixaAtual || undefined,
         graus: form.graus,
+      };
+
+      console.log('[Alunos] enviando cadastro/edicao:', {
+        editingAlunoId,
+        ...alunoBody,
+        foto: alunoBody.foto ? `[base64 ${alunoBody.foto.length} chars]` : undefined,
       });
-      setAlunos((previous) => [aluno, ...previous]);
-      setForm({
-        nome: '',
-        apelido: '',
-        emailResponsavel: '',
-        celular: '',
-        dataNascimento: '',
-        dataPagamento: '',
-        faixaAtual: '',
-        graus: 0,
-      });
+
+      const aluno = editingAlunoId
+        ? await parabaService.atualizarAluno(editingAlunoId, alunoBody)
+        : await parabaService.cadastrarAluno(alunoBody);
+
+      console.log('[Alunos] sucesso:', aluno.id);
+
+      setAlunos((previous) =>
+        editingAlunoId
+          ? previous.map((item) => (item.id === aluno.id ? aluno : item))
+          : [aluno, ...previous]
+      );
+      resetForm();
       setShowForm(false);
     } catch (error) {
+      console.log('[Alunos] erro ao salvar aluno:', error);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as { response?: { status?: number; data?: unknown } };
+        console.log('[Alunos] status:', axiosError.response?.status);
+        console.log('[Alunos] response data:', axiosError.response?.data);
+      }
       showError(apiErrorMessage(error, 'Nao foi possivel cadastrar o aluno.'));
     } finally {
       setSaving(false);
     }
   };
 
+  const startEditingAluno = (aluno: Aluno) => {
+    setEditingAlunoId(aluno.id);
+    setForm({
+      nome: aluno.nome,
+      apelido: aluno.apelido ?? '',
+      foto: aluno.foto ?? '',
+      emailResponsavel: aluno.emailResponsavel ?? '',
+      celular: aluno.celular ? formatPhone(aluno.celular) : '',
+      dataNascimento: isoToFormDate(aluno.dataNascimento),
+      dataPagamento: aluno.dataPagamento ?? '',
+      faixaAtual: aluno.faixaAtual ?? '',
+      graus: aluno.graus ?? 0,
+    });
+    setShowForm(true);
+  };
+
+  const choosePhoto = async () => {
+    try {
+      const foto = await pickStudentPhoto();
+      if (foto) {
+        setForm((previous) => ({ ...previous, foto }));
+      }
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Nao foi possivel selecionar a foto.');
+    }
+  };
+
+  const filteredAlunos = useMemo(() => {
+    const normalizedName = nameFilter.trim().toLowerCase();
+
+    return alunos.filter((aluno) => {
+      const matchesName =
+        !normalizedName ||
+        aluno.nome.toLowerCase().includes(normalizedName) ||
+        (aluno.apelido ?? '').toLowerCase().includes(normalizedName);
+
+      const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+      const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
+
+      return matchesName && matchesCategory;
+    });
+  }, [alunos, categoryFilter, nameFilter]);
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Alunos</Text>
       <Text style={styles.subtitle}>
         Cadastro dos membros da Equipe Paraba.
       </Text>
 
-      <AppButton variant={showForm ? 'secondary' : 'primary'} onPress={() => setShowForm((value) => !value)}>
-        {showForm ? 'Ocultar cadastro' : 'Cadastrar aluno'}
+      <AppButton
+        variant={showForm ? 'secondary' : 'primary'}
+        onPress={() => {
+          if (showForm) {
+            resetForm();
+            setShowForm(false);
+            return;
+          }
+          setShowForm(true);
+        }}
+      >
+        {showForm ? (editingAlunoId ? 'Cancelar edição' : 'Ocultar cadastro') : 'Cadastrar aluno'}
       </AppButton>
 
       {showForm ? (
         <AppCard style={styles.formCard}>
-          <Text style={styles.cardTitle}>Novo aluno</Text>
+          <Text style={styles.cardTitle}>{editingAlunoId ? 'Editar aluno' : 'Novo aluno'}</Text>
           <TextInput
             style={styles.input}
             value={form.nome}
@@ -150,6 +258,19 @@ export default function AlunosScreen() {
             placeholder="Apelido (opcional)"
             placeholderTextColor={Theme.textMuted}
           />
+          <View style={styles.photoRow}>
+            <Image source={form.foto ? { uri: form.foto } : DEFAULT_STUDENT_PHOTO} style={styles.formPhoto} />
+            <View style={styles.photoButtons}>
+              <AppButton variant="secondary" onPress={choosePhoto}>
+                {form.foto ? 'Trocar foto' : 'Adicionar foto'}
+              </AppButton>
+              {form.foto ? (
+                <AppButton variant="ghost" onPress={() => setForm((previous) => ({ ...previous, foto: '' }))}>
+                  Remover foto
+                </AppButton>
+              ) : null}
+            </View>
+          </View>
           <TextInput
             style={styles.input}
             value={form.emailResponsavel}
@@ -176,7 +297,7 @@ export default function AlunosScreen() {
             onChangeText={(dataNascimento) =>
               setForm((previous) => ({ ...previous, dataNascimento: formatDate(dataNascimento) }))
             }
-            placeholder="Data nascimento DD/MM/AAAA"
+            placeholder="Data nascimento DD/MM/AAAA (obrigatorio)"
             placeholderTextColor={Theme.textMuted}
             keyboardType="number-pad"
             maxLength={10}
@@ -223,33 +344,68 @@ export default function AlunosScreen() {
             })}
           </View>
           <AppButton loading={saving} onPress={submit}>
-            Salvar aluno
+            {editingAlunoId ? 'Salvar alterações' : 'Salvar aluno'}
           </AppButton>
         </AppCard>
       ) : null}
 
       <Text style={styles.sectionTitle}>Alunos cadastrados</Text>
+      <AppCard style={styles.filtersCard}>
+        <Text style={styles.cardTitle}>Filtros</Text>
+        <TextInput
+          style={styles.input}
+          value={nameFilter}
+          onChangeText={setNameFilter}
+          placeholder="Filtrar por nome ou apelido"
+          placeholderTextColor={Theme.textMuted}
+        />
+        <View style={styles.optionsGrid}>
+          {STUDENT_CATEGORY_FILTERS.map((category) => {
+            const selected = categoryFilter === category.id;
+            return (
+              <Pressable
+                key={category.id}
+                style={[styles.option, selected && styles.optionSelected]}
+                onPress={() => setCategoryFilter(category.id)}
+              >
+                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                  {category.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </AppCard>
       {loading ? <ActivityIndicator color={Theme.primary} /> : null}
-      {alunos.map((aluno) => (
-        <AppCard key={aluno.id} style={styles.studentCard}>
-          <View style={styles.studentHeader}>
-            <Text style={styles.studentName}>{aluno.nome}</Text>
-          </View>
-          {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
-          <Text style={styles.studentMeta}>
-            Usuario vinculado: {aluno.userId || aluno.user?.id || 'pendente'}
-          </Text>
-          <Text style={styles.studentMeta}>
-            Faixa: {aluno.faixaAtual ?? 'nao informada'} ({aluno.graus ?? 0} graus)
-          </Text>
-          <Text style={styles.studentMeta}>
-            Pagamento: {aluno.dataPagamento ? `todo dia ${aluno.dataPagamento}` : 'nao informado'}
-          </Text>
-          <Text style={styles.studentMeta}>
-            Presencas: {aluno.totalPresencas ?? 0} | Ultima: {isoToBrDate(aluno.ultimaPresenca)}
-          </Text>
-        </AppCard>
-      ))}
+      {filteredAlunos.map((aluno) => {
+        const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+        return (
+          <Pressable key={aluno.id} onPress={() => startEditingAluno(aluno)} style={({ pressed }) => pressed && styles.cardPressed}>
+            <AppCard style={styles.studentCard}>
+              <Image source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.studentPhoto} />
+              <View style={styles.studentHeader}>
+                <Text style={styles.studentName}>{aluno.nome}</Text>
+              </View>
+              {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
+              <Text style={styles.studentMeta}>Categoria: {category?.label ?? 'sem categoria'}</Text>
+              <Text style={styles.studentMeta}>Nascimento: {isoToBrDate(aluno.dataNascimento)}</Text>
+              <Text style={styles.studentMeta}>
+                Faixa: {aluno.faixaAtual ?? 'nao informada'} ({aluno.graus ?? 0} graus)
+              </Text>
+              <Text style={styles.studentMeta}>
+                Pagamento: {aluno.dataPagamento ? `todo dia ${aluno.dataPagamento}` : 'nao informado'}
+              </Text>
+              <Text style={styles.studentMeta}>
+                Presencas: {aluno.totalPresencas ?? 0} | Ultima: {isoToBrDate(aluno.ultimaPresenca)}
+              </Text>
+              <Text style={styles.editHint}>Toque para editar</Text>
+            </AppCard>
+          </Pressable>
+        );
+      })}
+      {!loading && filteredAlunos.length === 0 ? (
+        <Text style={styles.empty}>Nenhum aluno encontrado com os filtros atuais.</Text>
+      ) : null}
 
       <AlertError
         visible={errorVisible}
@@ -269,7 +425,6 @@ const styles = StyleSheet.create({
   container: {
     gap: 16,
     padding: 20,
-    paddingTop: 58,
   },
   title: {
     color: Theme.text,
@@ -282,6 +437,9 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   formCard: {
+    gap: 12,
+  },
+  filtersCard: {
     gap: 12,
   },
   cardTitle: {
@@ -298,6 +456,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 50,
     paddingHorizontal: 14,
+  },
+  photoRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  formPhoto: {
+    borderRadius: 34,
+    height: 68,
+    width: 68,
+  },
+  photoButtons: {
+    flex: 1,
+    gap: 8,
   },
   fieldLabel: {
     color: Theme.text,
@@ -350,6 +522,19 @@ const styles = StyleSheet.create({
   },
   studentCard: {
     gap: 6,
+    minHeight: 92,
+    paddingRight: 92,
+    position: 'relative',
+  },
+  studentPhoto: {
+    borderColor: Theme.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    height: 56,
+    position: 'absolute',
+    right: 16,
+    top: 16,
+    width: 56,
   },
   studentHeader: {
     flexDirection: 'row',
@@ -370,5 +555,19 @@ const styles = StyleSheet.create({
   studentMeta: {
     color: Theme.textMuted,
     fontSize: 13,
+  },
+  empty: {
+    color: Theme.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  cardPressed: {
+    opacity: 0.82,
+  },
+  editHint: {
+    color: Theme.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 4,
   },
 });

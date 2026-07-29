@@ -14,11 +14,21 @@ import { AlertError } from '@/components/ui/AlertError';
 import { AppCard } from '@/components/ui/AppCard';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService, type Aluno } from '@/services/parabaService';
+import { paymentDueDate, resolvePaymentDayInMonth } from '@/utils/paymentDay';
 
 type PaymentStatus = 'pago' | 'atrasado' | 'venceHoje' | 'aguardando' | 'semDia' | 'naoIniciado';
 type PaymentViewMode = 'current' | 'lastUnpaid';
+type PaymentStatusFilter = 'todos' | 'pago' | 'emAberto' | 'atrasado';
+
+const PAYMENT_STATUS_FILTERS: { id: PaymentStatusFilter; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: 'pago', label: 'Pago' },
+  { id: 'emAberto', label: 'Em aberto' },
+  { id: 'atrasado', label: 'Em atraso' },
+];
 
 function currentPaymentReference(): string {
   const now = new Date();
@@ -45,7 +55,7 @@ function shouldCountForReference(aluno: Aluno, reference: string): boolean {
   if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) return true;
 
   const [year, month] = reference.split('-').map(Number);
-  const dueDate = new Date(year, month - 1, paymentDay, 23, 59, 59, 999);
+  const dueDate = paymentDueDate(paymentDay, year, month - 1);
   const createdAt = new Date(aluno.createdAt);
 
   if (Number.isNaN(createdAt.getTime())) return true;
@@ -61,9 +71,11 @@ function paymentStatus(aluno: Aluno, reference: string): PaymentStatus {
   if (!shouldCountForReference(aluno, reference)) return 'naoIniciado';
   if (reference !== currentPaymentReference()) return 'atrasado';
 
-  const today = new Date().getDate();
-  if (today > paymentDay) return 'atrasado';
-  if (today === paymentDay) return 'venceHoje';
+  const now = new Date();
+  const dueDay = resolvePaymentDayInMonth(paymentDay, now.getFullYear(), now.getMonth());
+  const today = now.getDate();
+  if (today > dueDay) return 'atrasado';
+  if (today === dueDay) return 'venceHoje';
   return 'aguardando';
 }
 
@@ -87,12 +99,21 @@ function paymentStatusColor(status: PaymentStatus): string {
   return Theme.textMuted;
 }
 
+function matchesStatusFilter(status: PaymentStatus, filter: PaymentStatusFilter): boolean {
+  if (filter === 'todos') return true;
+  if (filter === 'pago') return status === 'pago';
+  if (filter === 'atrasado') return status === 'atrasado';
+  return status === 'aguardando' || status === 'venceHoje' || status === 'semDia' || status === 'naoIniciado';
+}
+
 export default function PagamentosScreen() {
+  const topPadding = useScreenTopPadding();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingAlunoId, setSavingAlunoId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PaymentViewMode>('current');
+  const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>('todos');
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -128,6 +149,10 @@ export default function PagamentosScreen() {
       : alunos;
   const visibleAlunos = baseAlunos.filter((aluno) => {
     const normalizedSearch = search.trim().toLowerCase();
+    const status = paymentStatus(aluno, activeReference);
+    const matchesStatus = matchesStatusFilter(status, statusFilter);
+    if (!matchesStatus) return false;
+
     if (!normalizedSearch) return true;
 
     return [aluno.nome, aluno.apelido]
@@ -164,7 +189,11 @@ export default function PagamentosScreen() {
   };
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Pagamentos</Text>
       <Text style={styles.subtitle}>Marque pagamentos do mes e acompanhe atrasos automaticamente.</Text>
 
@@ -192,6 +221,21 @@ export default function PagamentosScreen() {
         placeholder="Buscar por nome ou apelido"
         placeholderTextColor={Theme.textMuted}
       />
+
+      <View style={styles.filterRow}>
+        {PAYMENT_STATUS_FILTERS.map((filter) => {
+          const selected = statusFilter === filter.id;
+          return (
+            <Pressable
+              key={filter.id}
+              style={[styles.filterButton, selected && styles.filterButtonSelected]}
+              onPress={() => setStatusFilter(filter.id)}
+            >
+              <Text style={[styles.filterText, selected && styles.filterTextSelected]}>{filter.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       <Text style={styles.sectionTitle}>
         {viewMode === 'lastUnpaid' ? 'Pendencias do mes passado' : 'Status atual'}
@@ -300,7 +344,6 @@ const styles = StyleSheet.create({
   container: {
     gap: 16,
     padding: 20,
-    paddingTop: 58,
   },
   title: {
     color: Theme.text,

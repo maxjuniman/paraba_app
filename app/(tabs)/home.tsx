@@ -2,19 +2,59 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { AppButton } from '@/components/ui/AppButton';
+import { NotificationPermissionModal } from '@/components/ui/NotificationPermissionModal';
 import { Theme } from '@/constants/Theme';
-import { parabaService } from '@/services/parabaService';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
+import { parabaService, type Aluno } from '@/services/parabaService';
 import { getCurrentUser, signOut, type SessionUser } from '@/utils/session';
+import {
+  getNotificationPermissionStatus,
+  hasSeenNotificationPrompt,
+  markNotificationPromptSeen,
+  requestNotificationPermissionAndSync,
+  syncPushTokenIfGranted,
+} from '@/utils/registerPushNotifications';
 
 function isProfessorUser(user?: SessionUser | null): boolean {
   return user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
 }
 
+type MonthlyBirthday = {
+  id: string;
+  nome: string;
+  dia: number;
+  idade: number;
+};
+
+function getMonthlyBirthdays(alunos: Aluno[], referenceDate = new Date()): MonthlyBirthday[] {
+  const currentMonth = referenceDate.getMonth() + 1;
+  const currentYear = referenceDate.getFullYear();
+
+  return alunos
+    .map((aluno) => {
+      const [year, month, day] = (aluno.dataNascimento ?? '').split('-').map(Number);
+      if (!year || !month || !day || month !== currentMonth) return null;
+
+      return {
+        id: aluno.id,
+        nome: aluno.apelido || aluno.nome,
+        dia: day,
+        idade: currentYear - year,
+      };
+    })
+    .filter((item): item is MonthlyBirthday => item != null)
+    .sort((a, b) => a.dia - b.dia || a.nome.localeCompare(b.nome));
+}
+
 export default function HomeScreen() {
+  const topPadding = useScreenTopPadding();
   const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [loadedUser, setLoadedUser] = useState(false);
   const [pendingAuthorizations, setPendingAuthorizations] = useState(0);
+  const [monthlyBirthdays, setMonthlyBirthdays] = useState<MonthlyBirthday[]>([]);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const [requestingNotifications, setRequestingNotifications] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -24,17 +64,42 @@ export default function HomeScreen() {
         if (!active) return;
 
         setUser(current);
+        setLoadedUser(true);
+
+        try {
+          const status = await getNotificationPermissionStatus();
+          if (status === 'granted') {
+            await syncPushTokenIfGranted();
+          } else {
+            const alreadySeen = await hasSeenNotificationPrompt();
+            if (!alreadySeen && status !== 'denied') {
+              setShowNotificationPrompt(true);
+            }
+          }
+        } catch {
+          // Falha de push nao deve bloquear a home.
+        }
 
         if (!isProfessorUser(current)) {
           setPendingAuthorizations(0);
+          setMonthlyBirthdays([]);
           return;
         }
 
         try {
-          const pendingUsers = await parabaService.listarUsuariosPendentes();
-          if (active) setPendingAuthorizations(pendingUsers.length);
+          const [pendingUsers, alunos] = await Promise.all([
+            parabaService.listarUsuariosPendentes(),
+            parabaService.listarAlunos(),
+          ]);
+          if (active) {
+            setPendingAuthorizations(pendingUsers.length);
+            setMonthlyBirthdays(getMonthlyBirthdays(alunos));
+          }
         } catch {
-          if (active) setPendingAuthorizations(0);
+          if (active) {
+            setPendingAuthorizations(0);
+            setMonthlyBirthdays([]);
+          }
         }
       })();
 
@@ -49,10 +114,29 @@ export default function HomeScreen() {
     router.replace('/');
   };
 
+  const allowNotifications = async () => {
+    try {
+      setRequestingNotifications(true);
+      setShowNotificationPrompt(false);
+      await requestNotificationPermissionAndSync();
+    } catch {
+      // Mantem o app utilizavel mesmo se a permissao falhar.
+    } finally {
+      setRequestingNotifications(false);
+    }
+  };
+
+  const skipNotifications = async () => {
+    await markNotificationPromptSeen();
+    setShowNotificationPrompt(false);
+  };
+
+  const isProfessor = isProfessorUser(user);
+
   return (
     <View style={styles.screen}>
       <Image source={require('../../assets/img/logo.png')} style={styles.backgroundLogo} resizeMode="contain" />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingTop: topPadding }]}>
         <View style={styles.header}>
           <View>
             <Text style={styles.kicker}>Bem-vindo</Text>
@@ -63,7 +147,19 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {isProfessorUser(user) && pendingAuthorizations > 0 ? (
+        {loadedUser && !isProfessor ? (
+          <TouchableOpacity activeOpacity={0.82} style={styles.summaryCard} onPress={() => router.push('/equipe')}>
+            <View style={styles.authorizationHeader}>
+              <Ionicons name="shield" size={24} color={Theme.primary} />
+              <Text style={styles.cardTitle}>Equipe</Text>
+            </View>
+            <Text style={styles.cardText}>
+              Acesse a lista da equipe com fotos e informacoes basicas dos alunos.
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {isProfessor && pendingAuthorizations > 0 ? (
           <TouchableOpacity
             activeOpacity={0.82}
             style={styles.summaryCard}
@@ -79,33 +175,59 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <View style={styles.grid}>
-          <TouchableOpacity activeOpacity={0.82} style={styles.quickCard} onPress={() => router.push('/alunos')}>
-            <Ionicons name="person-add" size={24} color={Theme.secondary} />
-            <Text style={styles.quickTitle}>Aluno</Text>
-            <Text style={styles.quickText}>Cadastre alunos e gere o codigo de vinculo.</Text>
-          </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.82} style={styles.quickCard} onPress={() => router.push('/pagamentos')}>
-            <Ionicons name="calendar" size={24} color={Theme.warning} />
-            <Text style={styles.quickTitle}>Pagamento</Text>
-            <Text style={styles.quickText}>Atualize a data de pagamento por aluno.</Text>
-          </TouchableOpacity>
-        </View>
-
-        {isProfessorUser(user) ? (
-          <TouchableOpacity activeOpacity={0.82} style={styles.summaryCard} onPress={() => router.push('/presencas')}>
-            <View style={styles.authorizationHeader}>
-              <Ionicons name="checkbox" size={24} color={Theme.secondary} />
-              <Text style={styles.cardTitle}>Lista de presença</Text>
+        {isProfessor ? (
+          <>
+            <View style={[styles.summaryCard, styles.birthdayCard]}>
+              <View style={styles.authorizationHeader}>
+                <Ionicons name="gift" size={24} color={Theme.warning} />
+                <Text style={styles.cardTitle}>Aniversariantes do mês</Text>
+              </View>
+              {monthlyBirthdays.length > 0 ? (
+                monthlyBirthdays.map((birthday) => (
+                  <Text key={birthday.id} style={styles.birthdayText}>
+                    Dia {birthday.dia.toString().padStart(2, '0')} · {birthday.nome} faz {birthday.idade} anos
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.cardText}>Nenhum aluno faz aniversário neste mês.</Text>
+              )}
             </View>
-            <Text style={styles.cardText}>Abra a chamada do dia e toque no nome para marcar presença.</Text>
-          </TouchableOpacity>
-        ) : null}
 
-        <AppButton variant="secondary" onPress={() => router.push('/videos')}>
-          Publicar foto/video
-        </AppButton>
+            <View style={styles.grid}>
+              <TouchableOpacity activeOpacity={0.82} style={styles.quickCard} onPress={() => router.push('/alunos')}>
+                <Ionicons name="person-add" size={24} color={Theme.secondary} />
+                <Text style={styles.quickTitle}>Aluno</Text>
+                <Text style={styles.quickText}>Cadastre alunos e gere o codigo de vinculo.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={0.82} style={styles.quickCard} onPress={() => router.push('/pagamentos')}>
+                <Ionicons name="calendar" size={24} color={Theme.warning} />
+                <Text style={styles.quickTitle}>Pagamento</Text>
+                <Text style={styles.quickText}>Atualize a data de pagamento por aluno.</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity activeOpacity={0.82} style={styles.summaryCard} onPress={() => router.push('/presencas')}>
+              <View style={styles.authorizationHeader}>
+                <Ionicons name="checkbox" size={24} color={Theme.secondary} />
+                <Text style={styles.cardTitle}>Lista de presença</Text>
+              </View>
+              <Text style={styles.cardText}>Abra a chamada do dia e toque no nome para marcar presença.</Text>
+            </TouchableOpacity>
+
+          </>
+        ) : null}
       </ScrollView>
+
+      <NotificationPermissionModal
+        visible={showNotificationPrompt}
+        loading={requestingNotifications}
+        onAllow={() => {
+          void allowNotifications();
+        }}
+        onLater={() => {
+          void skipNotifications();
+        }}
+      />
     </View>
   );
 }
@@ -130,7 +252,6 @@ const styles = StyleSheet.create({
   container: {
     gap: 18,
     padding: 20,
-    paddingTop: 58,
   },
   header: {
     alignItems: 'center',
@@ -168,6 +289,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 18,
   },
+  birthdayCard: {
+    borderColor: Theme.warning,
+  },
   cardTitle: {
     color: Theme.text,
     fontSize: 20,
@@ -176,6 +300,12 @@ const styles = StyleSheet.create({
   cardText: {
     color: Theme.textMuted,
     fontSize: 15,
+    lineHeight: 22,
+  },
+  birthdayText: {
+    color: Theme.text,
+    fontSize: 15,
+    fontWeight: '700',
     lineHeight: 22,
   },
   authorizationHeader: {

@@ -2,6 +2,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Pressable,
   ScrollView,
@@ -15,12 +16,15 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { Theme } from '@/constants/Theme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
+import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService, type Aluno, type PendingUser } from '@/services/parabaService';
 import { brDateToIso, formatDate, formatPhone } from '@/utils/formatters';
+import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
 const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
 const GRAUS = [0, 1, 2, 3, 4];
+const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
 
 function alunoLabel(aluno: Aluno): string {
   return aluno.apelido ? `${aluno.nome} (${aluno.apelido})` : aluno.nome;
@@ -36,6 +40,7 @@ function isValidPaymentDay(value: string): boolean {
 }
 
 export default function AutorizacoesScreen() {
+  const topPadding = useScreenTopPadding();
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,6 +53,7 @@ export default function AutorizacoesScreen() {
   const [newAluno, setNewAluno] = useState({
     nome: '',
     apelido: '',
+    foto: '',
     emailResponsavel: '',
     celular: '',
     dataNascimento: '',
@@ -89,6 +95,8 @@ export default function AutorizacoesScreen() {
         .some((value) => value?.toLowerCase().includes(search));
     })
     .slice(0, 8);
+  const selectedPendingUser = pendingUsers.find((user) => user.id === selectedUserId);
+  const selectedAluno = alunos.find((aluno) => aluno.id === selectedAlunoId);
 
   const resetAuthorizationForm = () => {
     setSelectedUserId('');
@@ -98,6 +106,7 @@ export default function AutorizacoesScreen() {
     setNewAluno({
       nome: '',
       apelido: '',
+      foto: '',
       emailResponsavel: '',
       celular: '',
       dataNascimento: '',
@@ -142,8 +151,8 @@ export default function AutorizacoesScreen() {
       return;
     }
 
-    const dataNascimento = newAluno.dataNascimento ? brDateToIso(newAluno.dataNascimento) : null;
-    if (newAluno.dataNascimento && !dataNascimento) {
+    const dataNascimento = brDateToIso(newAluno.dataNascimento);
+    if (!dataNascimento) {
       showError('Informe a data de nascimento no formato DD/MM/AAAA.');
       return;
     }
@@ -160,9 +169,10 @@ export default function AutorizacoesScreen() {
         aluno: {
           nome: newAluno.nome.trim(),
           apelido: newAluno.apelido.trim() || undefined,
+          foto: newAluno.foto || undefined,
           emailResponsavel: newAluno.emailResponsavel.trim() || undefined,
           celular: newAluno.celular.trim() || undefined,
-          dataNascimento: dataNascimento ?? undefined,
+          dataNascimento,
           dataPagamento: dataPagamento || undefined,
           faixaAtual: newAluno.faixaAtual || undefined,
           graus: newAluno.graus,
@@ -178,15 +188,31 @@ export default function AutorizacoesScreen() {
     }
   };
 
+  const chooseNewAlunoPhoto = async () => {
+    try {
+      const foto = await pickStudentPhoto();
+      if (foto) {
+        setNewAluno((previous) => ({ ...previous, foto }));
+      }
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Nao foi possivel selecionar a foto.');
+    }
+  };
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Autorizações</Text>
-      <Text style={styles.subtitle}>Autorize novos usuarios e vincule cada um a um aluno cadastrado.</Text>
+      <Text style={styles.subtitle}>Selecione o cadastro pendente e busque o aluno que deve ser vinculado.</Text>
 
       {loading ? <ActivityIndicator color={Theme.primary} /> : null}
 
       <AppCard style={styles.card}>
-        <Text style={styles.cardTitle}>Usuarios pendentes</Text>
+        <Text style={styles.cardTitle}>Cadastro pendente</Text>
+        <Text style={styles.helpText}>Usuario que criou conta no app e aguarda autorizacao.</Text>
         {pendingUsers.length === 0 ? <Text style={styles.meta}>Nenhum usuario pendente.</Text> : null}
         {pendingUsers.map((user) => {
           const selected = selectedUserId === user.id;
@@ -196,6 +222,7 @@ export default function AutorizacoesScreen() {
               style={[styles.option, selected && styles.optionSelected]}
               onPress={() => setSelectedUserId(user.id)}
             >
+              <Text style={[styles.optionKicker, selected && styles.optionMetaSelected]}>CADASTRO PENDENTE</Text>
               <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>{user.nome}</Text>
               <Text style={[styles.optionMeta, selected && styles.optionMetaSelected]}>{user.email}</Text>
             </Pressable>
@@ -204,7 +231,15 @@ export default function AutorizacoesScreen() {
       </AppCard>
 
       <AppCard style={styles.card}>
-        <Text style={styles.cardTitle}>Vincular aluno existente</Text>
+        <Text style={styles.cardTitle}>Aluno cadastrado</Text>
+        <Text style={styles.helpText}>Busque pelo nome ou apelido do aluno ja cadastrado.</Text>
+        {selectedPendingUser ? (
+          <Text style={styles.contextText}>
+            Cadastro escolhido: <Text style={styles.contextStrong}>{selectedPendingUser.nome}</Text>
+          </Text>
+        ) : (
+          <Text style={styles.meta}>Selecione um cadastro pendente acima antes de autorizar.</Text>
+        )}
         <TextInput
           style={styles.input}
           value={alunoSearch}
@@ -212,39 +247,69 @@ export default function AutorizacoesScreen() {
             setAlunoSearch(value);
             setSelectedAlunoId('');
           }}
-          placeholder="Buscar aluno por nome, apelido ou ID"
+          placeholder="Buscar aluno por nome ou apelido"
           placeholderTextColor={Theme.textMuted}
         />
-        {filteredAlunos.map((aluno) => {
-          const selected = selectedAlunoId === aluno.id;
-          return (
-            <Pressable
-              key={aluno.id}
-              style={[styles.option, selected && styles.optionSelected]}
-              onPress={() => {
-                setSelectedAlunoId(aluno.id);
-                setAlunoSearch(alunoLabel(aluno));
-                setShowNewAluno(false);
-              }}
-            >
-              <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>{alunoLabel(aluno)}</Text>
-              <Text style={[styles.optionMeta, selected && styles.optionMetaSelected]}>ID: {aluno.id}</Text>
-            </Pressable>
-          );
-        })}
-        {!loading && filteredAlunos.length === 0 ? <Text style={styles.meta}>Nenhum aluno disponivel.</Text> : null}
-        <AppButton loading={saving} onPress={authorizeWithExistingAluno}>
-          Autorizar com aluno selecionado
-        </AppButton>
+        {alunoSearch.trim() && !selectedAluno ? (
+          filteredAlunos.length > 0 ? (
+            filteredAlunos.map((aluno) => (
+              <Pressable
+                key={aluno.id}
+                style={styles.option}
+                onPress={() => {
+                  setSelectedAlunoId(aluno.id);
+                  setAlunoSearch(alunoLabel(aluno));
+                  setShowNewAluno(false);
+                }}
+              >
+                <Text style={styles.optionKicker}>ALUNO CADASTRADO</Text>
+                <Text style={styles.optionTitle}>{alunoLabel(aluno)}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={styles.meta}>Nenhum aluno encontrado com essa busca.</Text>
+          )
+        ) : null}
+        {selectedAluno ? (
+          <View style={styles.confirmBox}>
+            <Text style={styles.confirmTitle}>Vincular esse cadastro ao aluno {alunoLabel(selectedAluno)}?</Text>
+            <Text style={styles.confirmMeta}>
+              {selectedPendingUser
+                ? `Cadastro: ${selectedPendingUser.nome}`
+                : 'Selecione um cadastro pendente antes de confirmar.'}
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                style={[styles.confirmButton, styles.confirmButtonNo]}
+                onPress={() => {
+                  setSelectedAlunoId('');
+                  setAlunoSearch('');
+                }}
+              >
+                <Text style={[styles.confirmButtonText, styles.confirmButtonTextNo]}>Não</Text>
+              </Pressable>
+              <Pressable
+                disabled={saving}
+                style={[styles.confirmButton, styles.confirmButtonYes, saving && styles.confirmButtonDisabled]}
+                onPress={() => void authorizeWithExistingAluno()}
+              >
+                <Text style={[styles.confirmButtonText, styles.confirmButtonTextYes]}>Sim</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </AppCard>
 
-      <AppButton variant={showNewAluno ? 'secondary' : 'primary'} onPress={() => setShowNewAluno((value) => !value)}>
-        {showNewAluno ? 'Ocultar novo aluno' : 'Cadastrar aluno para autorizar'}
-      </AppButton>
+      <Pressable style={styles.linkBox} onPress={() => setShowNewAluno((value) => !value)}>
+        <Text style={styles.linkText}>
+          {showNewAluno ? 'Ocultar cadastro de novo aluno' : 'Não achou o aluno cadastrado? Cadastre agora'}
+        </Text>
+      </Pressable>
 
       {showNewAluno ? (
         <AppCard style={styles.card}>
           <Text style={styles.cardTitle}>Novo aluno</Text>
+          <Text style={styles.helpText}>Cadastre o aluno e autorize o cadastro pendente em seguida.</Text>
           <TextInput
             style={styles.input}
             value={newAluno.nome}
@@ -259,6 +324,19 @@ export default function AutorizacoesScreen() {
             placeholder="Apelido (opcional)"
             placeholderTextColor={Theme.textMuted}
           />
+          <View style={styles.photoRow}>
+            <Image source={newAluno.foto ? { uri: newAluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.formPhoto} />
+            <View style={styles.photoButtons}>
+              <AppButton variant="secondary" onPress={chooseNewAlunoPhoto}>
+                {newAluno.foto ? 'Trocar foto' : 'Adicionar foto'}
+              </AppButton>
+              {newAluno.foto ? (
+                <AppButton variant="ghost" onPress={() => setNewAluno((previous) => ({ ...previous, foto: '' }))}>
+                  Remover foto
+                </AppButton>
+              ) : null}
+            </View>
+          </View>
           <TextInput
             style={styles.input}
             value={newAluno.emailResponsavel}
@@ -283,7 +361,7 @@ export default function AutorizacoesScreen() {
             onChangeText={(dataNascimento) =>
               setNewAluno((previous) => ({ ...previous, dataNascimento: formatDate(dataNascimento) }))
             }
-            placeholder="Data nascimento DD/MM/AAAA"
+            placeholder="Data nascimento DD/MM/AAAA (obrigatorio)"
             placeholderTextColor={Theme.textMuted}
             keyboardType="number-pad"
             maxLength={10}
@@ -348,7 +426,6 @@ const styles = StyleSheet.create({
   container: {
     gap: 16,
     padding: 20,
-    paddingTop: 58,
   },
   title: {
     color: Theme.text,
@@ -363,10 +440,44 @@ const styles = StyleSheet.create({
   card: {
     gap: 12,
   },
+  stepHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  stepNumber: {
+    backgroundColor: Theme.primary,
+    borderRadius: 999,
+    color: Theme.white,
+    fontSize: 14,
+    fontWeight: '900',
+    height: 28,
+    lineHeight: 28,
+    textAlign: 'center',
+    width: 28,
+  },
+  stepTitleBox: {
+    flex: 1,
+    gap: 3,
+  },
   cardTitle: {
     color: Theme.text,
     fontSize: 18,
     fontWeight: '800',
+  },
+  helpText: {
+    color: Theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  contextText: {
+    color: Theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  contextStrong: {
+    color: Theme.text,
+    fontWeight: '900',
   },
   input: {
     backgroundColor: Theme.inputBg,
@@ -377,6 +488,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 50,
     paddingHorizontal: 14,
+  },
+  photoRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  formPhoto: {
+    borderRadius: 34,
+    height: 68,
+    width: 68,
+  },
+  photoButtons: {
+    flex: 1,
+    gap: 8,
   },
   option: {
     backgroundColor: Theme.inputBg,
@@ -395,6 +520,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  optionKicker: {
+    color: Theme.primary,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
   optionTitleSelected: {
     color: Theme.white,
   },
@@ -408,6 +539,91 @@ const styles = StyleSheet.create({
   meta: {
     color: Theme.textMuted,
     fontSize: 13,
+  },
+  selectedBox: {
+    backgroundColor: 'rgba(34, 160, 107, 0.08)',
+    borderColor: Theme.secondary,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 3,
+    padding: 12,
+  },
+  selectedLabel: {
+    color: Theme.secondary,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  selectedText: {
+    color: Theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  selectedMeta: {
+    color: Theme.textMuted,
+    fontSize: 12,
+  },
+  confirmBox: {
+    backgroundColor: 'rgba(34, 160, 107, 0.08)',
+    borderColor: Theme.secondary,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  confirmTitle: {
+    color: Theme.text,
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  confirmMeta: {
+    color: Theme.textMuted,
+    fontSize: 13,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  confirmButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 42,
+    justifyContent: 'center',
+  },
+  confirmButtonNo: {
+    backgroundColor: Theme.white,
+    borderColor: Theme.border,
+  },
+  confirmButtonYes: {
+    backgroundColor: Theme.primary,
+    borderColor: Theme.primary,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.55,
+  },
+  confirmButtonText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  confirmButtonTextNo: {
+    color: Theme.text,
+  },
+  confirmButtonTextYes: {
+    color: Theme.white,
+  },
+  linkBox: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  linkText: {
+    color: Theme.primary,
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   label: {
     color: Theme.text,
