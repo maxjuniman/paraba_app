@@ -57,7 +57,7 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
           },
         ]}
       >
-        <Image source={require('../../assets/img/logo.png')} style={styles.logo} resizeMode="contain" />
+        <Image source={require('../../assets/img/logo-padded.png')} style={styles.logo} resizeMode="contain" />
       </Animated.View>
     </View>
   );
@@ -69,15 +69,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.white,
     flex: 1,
     justifyContent: 'center',
+    overflow: 'visible',
   },
   logoWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   logo: {
-    height: 280,
-    maxHeight: '52%',
-    maxWidth: '82%',
-    width: 280,
+    height: 260,
+    maxHeight: '48%',
+    maxWidth: '78%',
+    width: 260,
   },
 });

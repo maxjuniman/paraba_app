@@ -58,12 +58,14 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: topPadding }]}>
       <View style={styles.logoArea}>
-        <Image source={require('../assets/img/logo.png')} style={styles.logo} resizeMode="contain" />
+        <Image source={require('../assets/img/logo-padded.png')} style={styles.logo} resizeMode="contain" />
       </View>
 
       <View style={styles.actions}>
-        <AppButton onPress={() => router.push('/auth/login')}>Entrar</AppButton>
-        <AppButton variant="secondary" onPress={() => router.push('/auth/register')}>
+        <AppButton forceLight onPress={() => router.push('/auth/login')}>
+          Entrar
+        </AppButton>
+        <AppButton forceLight variant="secondary" onPress={() => router.push('/auth/register')}>
           Criar conta
         </AppButton>
         <Text style={styles.version}>Versão {Constants.expoConfig?.version ?? '1.0.0'}</Text>
@@ -90,10 +92,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logo: {
-    height: 320,
-    maxHeight: '70%',
-    width: 320,
-    maxWidth: '90%',
+    height: 280,
+    maxHeight: '62%',
+    width: 280,
+    maxWidth: '78%',
   },
   actions: {
     gap: 12,

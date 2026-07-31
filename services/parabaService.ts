@@ -47,6 +47,7 @@ export type Aluno = {
   graus?: number | null;
   userId?: string | null;
   user?: Pick<SessionUser, 'id' | 'nome' | 'email' | 'ativo'> | null;
+  cadastroAppAt?: string | null;
   presencas?: Presenca[];
   totalPresencas?: number;
   ultimaPresenca?: string | null;
@@ -55,7 +56,16 @@ export type Aluno = {
 
 export type EquipeAluno = Pick<Aluno, 'id' | 'nome' | 'apelido' | 'foto' | 'dataNascimento' | 'faixaAtual' | 'graus'> & {
   isMe?: boolean;
+  dataPagamento?: string | null;
+  pagamentoPago?: boolean | null;
+  pagamentoReferencia?: string | null;
+  pagamentosPagos?: string[] | null;
+  createdAt?: string;
+  cadastroAppAt?: string | null;
 };
+
+export type MeuAluno = EquipeAluno &
+  Pick<Aluno, 'dataPagamento' | 'pagamentoPago' | 'pagamentoReferencia' | 'pagamentosPagos' | 'createdAt' | 'cadastroAppAt'>;
 
 export type Presenca = {
   id: string;
@@ -229,6 +239,21 @@ export const parabaService = {
     return data;
   },
 
+  async obterMeuPerfil(): Promise<SessionUser> {
+    const { data } = await api.get<{ data?: SessionUser } | SessionUser>('/auth/me');
+    return unwrapData<SessionUser>(data);
+  },
+
+  async atualizarMeuPerfil(body: {
+    nome: string;
+    celular?: string;
+    senhaAtual?: string;
+    novaSenha?: string;
+  }): Promise<SessionUser> {
+    const { data } = await api.patch<{ data?: SessionUser } | SessionUser>('/auth/me', body);
+    return unwrapData<SessionUser>(data);
+  },
+
   async listarUsuariosPendentes(): Promise<PendingUser[]> {
     const { data } = await api.get<{ data?: PendingUser[] } | PendingUser[]>('/users/pendentes');
     return Array.isArray(data) ? data : data.data ?? [];
@@ -248,6 +273,17 @@ export const parabaService = {
     return unwrapData<{ user: PendingUser; aluno: Aluno }>(data);
   },
 
+  async cadastrarProfessor(body: {
+    nome: string;
+    email: string;
+    celular?: string;
+    senha: string;
+    confirmacao_senha: string;
+  }): Promise<SessionUser> {
+    const { data } = await api.post<{ data?: SessionUser; message?: string } | SessionUser>('/users/professores', body);
+    return unwrapData<SessionUser>(data);
+  },
+
   async listarAlunos(): Promise<Aluno[]> {
     const { data } = await api.get<{ data?: Aluno[] } | Aluno[]>('/alunos');
     return Array.isArray(data) ? data : data.data ?? [];
@@ -256,6 +292,11 @@ export const parabaService = {
   async listarEquipe(): Promise<EquipeAluno[]> {
     const { data } = await api.get<{ data?: EquipeAluno[] } | EquipeAluno[]>('/equipe');
     return Array.isArray(data) ? data : data.data ?? [];
+  },
+
+  async obterMeuAluno(): Promise<MeuAluno> {
+    const { data } = await api.get<{ data?: MeuAluno } | MeuAluno>('/equipe/me');
+    return unwrapData<MeuAluno>(data);
   },
 
   async atualizarMinhaFotoEquipe(foto: string | null): Promise<EquipeAluno> {
@@ -314,6 +355,11 @@ export const parabaService = {
 
   async desativarUsuarioAluno(alunoId: string): Promise<Aluno> {
     const { data } = await api.patch<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}/desativar-user`);
+    return unwrapData<Aluno>(data);
+  },
+
+  async desvincularAlunoUser(alunoId: string): Promise<Aluno> {
+    const { data } = await api.post<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}/desvincular-user`);
     return unwrapData<Aluno>(data);
   },
 

@@ -155,11 +155,12 @@ export default function RegisterScreen() {
           </Pressable>
         </View>
 
-        <AppButton loading={loading} onPress={submit}>
+        <AppButton forceLight loading={loading} onPress={submit}>
           Criar conta
         </AppButton>
 
         <AlertError
+          forceLight
           visible={errorVisible}
           message={errorMessage}
           title={errorTitle}
@@ -170,11 +171,12 @@ export default function RegisterScreen() {
       <Modal transparent visible={successVisible} animationType="fade" onRequestClose={() => setSuccessVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.successModal}>
-            <Image source={require('../../assets/img/logo.png')} style={styles.modalLogo} resizeMode="contain" />
+            <Image source={require('../../assets/img/logo-padded.png')} style={styles.modalLogo} resizeMode="contain" />
             <Text style={styles.modalTitle}>osss</Text>
             <Text style={styles.modalSubtitle}>Cadastro enviado</Text>
             <Text style={styles.modalMessage}>{successMessage}</Text>
             <AppButton
+              forceLight
               onPress={() => {
                 setSuccessVisible(false);
                 router.replace('/auth/login');

@@ -3,16 +3,16 @@
     "name": "Equipe Paraba",
     "slug": "equipe-paraba",
     "owner": "maxjuniman",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "orientation": "portrait",
-    "icon": "./assets/img/logo.png",
+    "icon": "./assets/img/app-icon.png",
     "scheme": "equipe-paraba",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "buildNumber": "1.0.0",
       "supportsTablet": true,
-      "bundleIdentifier": "br.com.paraba",
+      "bundleIdentifier": "br.com.equipeparaba",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -23,23 +23,23 @@
     "android": {
       "versionCode": 1,
       "edgeToEdgeEnabled": true,
-      "package": "br.com.paraba",
+      "package": "br.com.equipeparaba",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/img/logo.png",
+        "foregroundImage": "./assets/img/app-icon.png",
         "backgroundColor": "#FFFFFF"
       }
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/img/logo.png"
+      "favicon": "./assets/img/app-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/img/logo.png",
+          "image": "./assets/img/logo-padded.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
@@ -73,20 +73,62 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-5559385981985695~2254597977",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ],
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "datePicker": {
+              "colorAccent": {
+                "light": "#000000",
+                "dark": "#FFFFFF"
+              },
+              "colorControlActivated": {
+                "light": "#000000",
+                "dark": "#FFFFFF"
+              },
+              "colorControlHighlight": {
+                "light": "#000000",
+                "dark": "#FFFFFF"
+              },
+              "textColorPrimary": {
+                "light": "#000000",
+                "dark": "#FFFFFF"
+              },
+              "textColorPrimaryInverse": {
+                "light": "#FFFFFF",
+                "dark": "#000000"
+              }
+            }
+          }
+        }
       ]
     ],
     "extra": {
       "eas": {
         "projectId": "76b7dbe7-8eee-445f-9504-5ecc7869d93d"
       },
-      "router": {}
+      "router": {},
+      "admobBannerAndroid": "ca-app-pub-5559385981985695/2338358450",
+      "admobBannerIos": ""
     },
     "runtimeVersion": "1.0.0",
     "experiments": {
       "typedRoutes": true
     },
     "updates": {
-      "url": "https://u.expo.dev/00000000-0000-0000-0000-000000000000"
+      "url": "https://u.expo.dev/76b7dbe7-8eee-445f-9504-5ecc7869d93d"
     }
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-5559385981985695~2254597977",
+    "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
   }
 }

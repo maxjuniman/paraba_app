@@ -19,7 +19,8 @@ import {
   STUDENT_CATEGORY_FILTERS,
   type StudentCategoryId,
 } from '@/constants/StudentCategories';
-import { Theme } from '@/constants/Theme';
+import { Theme, type ThemeColors } from '@/constants/Theme';
+import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
@@ -50,9 +51,9 @@ function formatBirthDateWithAge(isoDate?: string | null): string {
   return `${day}/${month}/${year}${age == null ? '' : ` (${age} anos)`}`;
 }
 
-function getBeltColor(faixa?: string | null): string {
-  if (!faixa) return Theme.textMuted;
-  return BELT_COLORS[faixa.trim().toLowerCase()] ?? Theme.textMuted;
+function getBeltColor(faixa?: string | null, fallback = Theme.textMuted): string {
+  if (!faixa) return fallback;
+  return BELT_COLORS[faixa.trim().toLowerCase()] ?? fallback;
 }
 
 function normalizeGraus(graus?: number | null): number {
@@ -61,12 +62,15 @@ function normalizeGraus(graus?: number | null): number {
 
 export default function EquipeScreen() {
   const topPadding = useScreenTopPadding();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [alunos, setAlunos] = useState<EquipeAluno[]>([]);
   const [nameFilter, setNameFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<StudentCategoryId>('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -100,6 +104,8 @@ export default function EquipeScreen() {
     });
   }, [alunos, categoryFilter, nameFilter]);
 
+  const hasActiveFilters = Boolean(nameFilter.trim()) || categoryFilter !== 'all';
+
   const updateMyPhoto = async () => {
     try {
       const foto = await pickStudentPhoto();
@@ -121,39 +127,60 @@ export default function EquipeScreen() {
       <Text style={styles.subtitle}>Conheca os alunos da Equipe Paraba.</Text>
 
       <AppCard style={styles.filtersCard}>
-        <Text style={styles.cardTitle}>Filtros</Text>
-        <TextInput
-          style={styles.input}
-          value={nameFilter}
-          onChangeText={setNameFilter}
-          placeholder="Filtrar por nome ou apelido"
-          placeholderTextColor={Theme.textMuted}
-        />
-        <View style={styles.filterOptions}>
-          {STUDENT_CATEGORY_FILTERS.map((category) => {
-            const selected = categoryFilter === category.id;
-            return (
-              <Pressable
-                key={category.id}
-                style={[styles.filterChip, selected && styles.filterChipSelected]}
-                onPress={() => setCategoryFilter(category.id)}
-              >
-                <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
-                  {category.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <Pressable
+          style={styles.filtersHeader}
+          onPress={() => setFiltersOpen((open) => !open)}
+          hitSlop={6}
+        >
+          <View style={styles.filtersHeaderText}>
+            <Text style={styles.cardTitle}>Procurar Atleta</Text>
+            {hasActiveFilters && !filtersOpen ? (
+              <Text style={styles.filtersHint}>Filtros ativos</Text>
+            ) : null}
+          </View>
+          <Ionicons
+            name={filtersOpen ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={colors.textMuted}
+          />
+        </Pressable>
+
+        {filtersOpen ? (
+          <>
+            <TextInput
+              style={styles.input}
+              value={nameFilter}
+              onChangeText={setNameFilter}
+              placeholder="Filtrar por nome ou apelido"
+              placeholderTextColor={colors.textMuted}
+            />
+            <View style={styles.filterOptions}>
+              {STUDENT_CATEGORY_FILTERS.map((category) => {
+                const selected = categoryFilter === category.id;
+                return (
+                  <Pressable
+                    key={category.id}
+                    style={[styles.filterChip, selected && styles.filterChipSelected]}
+                    onPress={() => setCategoryFilter(category.id)}
+                  >
+                    <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
+                      {category.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
       </AppCard>
 
-      {loading ? <ActivityIndicator color={Theme.primary} /> : null}
+      {loading ? <ActivityIndicator color={colors.primary} /> : null}
       {!loading && filteredAlunos.length === 0 ? <Text style={styles.empty}>Nenhum aluno encontrado.</Text> : null}
 
       {filteredAlunos.map((aluno) => {
         const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
         const graus = normalizeGraus(aluno.graus);
-        const beltColor = getBeltColor(aluno.faixaAtual);
+        const beltColor = getBeltColor(aluno.faixaAtual, colors.textMuted);
         const isMe = Boolean(aluno.isMe);
 
         return (
@@ -169,10 +196,10 @@ export default function EquipeScreen() {
               {isMe ? (
                 <Pressable style={styles.editPhotoButton} onPress={() => void updateMyPhoto()} disabled={savingPhoto}>
                   {savingPhoto ? (
-                    <ActivityIndicator color={Theme.primary} size="small" />
+                    <ActivityIndicator color={colors.primary} size="small" />
                   ) : (
                     <>
-                      <Ionicons name="camera-outline" size={16} color={Theme.primary} />
+                      <Ionicons name="camera-outline" size={16} color={colors.primary} />
                       <Text style={styles.editPhotoText}>{aluno.foto ? 'Trocar minha foto' : 'Adicionar minha foto'}</Text>
                     </>
                   )}
@@ -185,16 +212,18 @@ export default function EquipeScreen() {
               disabled={!isMe || savingPhoto}
             >
               <Image source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.photo} />
-              <View style={[styles.beltOverlay, { backgroundColor: beltColor }]}>
+              <View style={styles.beltOverlay}>
+                <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
                 <View style={styles.beltBlackPatch}>
                   {Array.from({ length: graus }).map((_, index) => (
                     <View key={index} style={styles.degreeStripe} />
                   ))}
                 </View>
+                <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
               </View>
               {isMe ? (
                 <View style={styles.photoEditBadge}>
-                  <Ionicons name="camera" size={14} color={Theme.white} />
+                  <Ionicons name="camera" size={14} color="#FFFFFF" />
                 </View>
               ) : null}
             </Pressable>
@@ -207,39 +236,54 @@ export default function EquipeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   scroll: {
     flex: 1,
-    backgroundColor: Theme.background,
+    backgroundColor: colors.background,
   },
   container: {
     gap: 14,
     padding: 20,
   },
   title: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 30,
     fontWeight: '900',
   },
   subtitle: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     lineHeight: 22,
   },
   filtersCard: {
     gap: 12,
   },
+  filtersHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  filtersHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
   cardTitle: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '800',
   },
+  filtersHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   input: {
-    backgroundColor: Theme.inputBg,
-    borderColor: Theme.border,
+    backgroundColor: colors.inputBg,
+    borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,
-    color: Theme.text,
+    color: colors.text,
     fontSize: 15,
     minHeight: 50,
     paddingHorizontal: 14,
@@ -250,23 +294,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterChip: {
-    borderColor: Theme.border,
+    borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
   filterChipSelected: {
-    backgroundColor: Theme.primary,
-    borderColor: Theme.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   filterChipText: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '800',
   },
   filterChipTextSelected: {
-    color: Theme.white,
+    color: colors.primary === '#FFFFFF' ? '#000000' : '#FFFFFF',
   },
   card: {
     alignItems: 'center',
@@ -275,7 +319,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   myCard: {
-    borderColor: Theme.primary,
+    borderColor: colors.primary,
     borderWidth: 1.5,
   },
   photoWrap: {
@@ -286,7 +330,7 @@ const styles = StyleSheet.create({
     width: 112,
   },
   photo: {
-    borderColor: Theme.border,
+    borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,
     height: 112,
@@ -304,16 +348,20 @@ const styles = StyleSheet.create({
     width: 28,
   },
   beltOverlay: {
-    alignItems: 'center',
+    backgroundColor: '#000000',
     borderColor: '#000000',
     borderWidth: 1.5,
     bottom: 12,
     flexDirection: 'row',
     height: 12,
-    justifyContent: 'center',
     left: -4,
+    overflow: 'hidden',
     position: 'absolute',
     right: -4,
+  },
+  beltEnd: {
+    alignSelf: 'stretch',
+    flex: 1,
   },
   beltBlackPatch: {
     alignItems: 'center',
@@ -323,25 +371,24 @@ const styles = StyleSheet.create({
     gap: 3,
     justifyContent: 'center',
     minWidth: 42,
+    paddingHorizontal: 4,
   },
   degreeStripe: {
-    backgroundColor: Theme.white,
-    borderColor: '#000000',
-    borderWidth: 1,
-    height: 14,
-    width: 5,
+    backgroundColor: '#FFFFFF',
+    height: '100%',
+    width: 3,
   },
   info: {
     flex: 1,
     gap: 4,
   },
   name: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 17,
     fontWeight: '900',
   },
   meta: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
   },
   editPhotoButton: {
@@ -353,13 +400,15 @@ const styles = StyleSheet.create({
     minHeight: 28,
   },
   editPhotoText: {
-    color: Theme.primary,
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '800',
   },
   empty: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
   },
 });
+}
+

@@ -8,6 +8,7 @@ export type SessionUser = {
   id: string;
   nome: string;
   email: string;
+  celular?: string;
   tipo?: 1 | 2 | 'admin' | 'professor' | 'aluno' | string;
   ativo?: boolean;
   alunoId?: string | null;
@@ -40,6 +41,10 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
+}
+
+export async function updateCurrentUser(user: SessionUser): Promise<void> {
+  await secureSetItem(USER_DATA_KEY, JSON.stringify(user));
 }
 
 export async function hasSession(): Promise<boolean> {

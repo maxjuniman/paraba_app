@@ -96,7 +96,7 @@ export default function LoginScreen() {
         </Pressable>
       </View>
 
-      <AppButton loading={loading} onPress={submit}>
+      <AppButton forceLight loading={loading} onPress={submit}>
         Entrar
       </AppButton>
 
@@ -108,6 +108,7 @@ export default function LoginScreen() {
       </View>
 
       <AlertError
+        forceLight
         visible={errorVisible}
         message={errorMessage}
         title={errorTitle}

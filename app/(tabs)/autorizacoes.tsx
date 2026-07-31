@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -14,7 +14,8 @@ import {
 import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { Theme } from '@/constants/Theme';
+import { type ThemeColors } from '@/constants/Theme';
+import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
@@ -39,8 +40,14 @@ function isValidPaymentDay(value: string): boolean {
   return Number.isInteger(day) && day >= 1 && day <= 31;
 }
 
+function selectedOnPrimaryText(primary: string): string {
+  return primary === '#FFFFFF' || primary === '#E5E7EB' ? '#000000' : '#FFFFFF';
+}
+
 export default function AutorizacoesScreen() {
   const topPadding = useScreenTopPadding();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,7 +55,6 @@ export default function AutorizacoesScreen() {
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedAlunoId, setSelectedAlunoId] = useState('');
-  const [alunoSearch, setAlunoSearch] = useState('');
   const [showNewAluno, setShowNewAluno] = useState(false);
   const [newAluno, setNewAluno] = useState({
     nome: '',
@@ -84,24 +90,13 @@ export default function AutorizacoesScreen() {
     }, [load])
   );
 
-  const filteredAlunos = alunos
-    .filter((aluno) => !aluno.userId)
-    .filter((aluno) => {
-      const search = alunoSearch.trim().toLowerCase();
-      if (!search) return true;
-
-      return [aluno.nome, aluno.apelido, aluno.id]
-        .filter(Boolean)
-        .some((value) => value?.toLowerCase().includes(search));
-    })
-    .slice(0, 8);
+  const alunosSemVinculo = alunos.filter((aluno) => !aluno.userId);
   const selectedPendingUser = pendingUsers.find((user) => user.id === selectedUserId);
   const selectedAluno = alunos.find((aluno) => aluno.id === selectedAlunoId);
 
   const resetAuthorizationForm = () => {
     setSelectedUserId('');
     setSelectedAlunoId('');
-    setAlunoSearch('');
     setShowNewAluno(false);
     setNewAluno({
       nome: '',
@@ -206,9 +201,9 @@ export default function AutorizacoesScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.title}>Autorizações</Text>
-      <Text style={styles.subtitle}>Selecione o cadastro pendente e busque o aluno que deve ser vinculado.</Text>
+      <Text style={styles.subtitle}>Selecione o cadastro pendente e o aluno sem vinculo para autorizar.</Text>
 
-      {loading ? <ActivityIndicator color={Theme.primary} /> : null}
+      {loading ? <ActivityIndicator color={colors.primary} /> : null}
 
       <AppCard style={styles.card}>
         <Text style={styles.cardTitle}>Cadastro pendente</Text>
@@ -232,7 +227,7 @@ export default function AutorizacoesScreen() {
 
       <AppCard style={styles.card}>
         <Text style={styles.cardTitle}>Aluno cadastrado</Text>
-        <Text style={styles.helpText}>Busque pelo nome ou apelido do aluno ja cadastrado.</Text>
+        <Text style={styles.helpText}>Alunos cadastrados sem usuario vinculado.</Text>
         {selectedPendingUser ? (
           <Text style={styles.contextText}>
             Cadastro escolhido: <Text style={styles.contextStrong}>{selectedPendingUser.nome}</Text>
@@ -240,36 +235,26 @@ export default function AutorizacoesScreen() {
         ) : (
           <Text style={styles.meta}>Selecione um cadastro pendente acima antes de autorizar.</Text>
         )}
-        <TextInput
-          style={styles.input}
-          value={alunoSearch}
-          onChangeText={(value) => {
-            setAlunoSearch(value);
-            setSelectedAlunoId('');
-          }}
-          placeholder="Buscar aluno por nome ou apelido"
-          placeholderTextColor={Theme.textMuted}
-        />
-        {alunoSearch.trim() && !selectedAluno ? (
-          filteredAlunos.length > 0 ? (
-            filteredAlunos.map((aluno) => (
-              <Pressable
-                key={aluno.id}
-                style={styles.option}
-                onPress={() => {
-                  setSelectedAlunoId(aluno.id);
-                  setAlunoSearch(alunoLabel(aluno));
-                  setShowNewAluno(false);
-                }}
-              >
-                <Text style={styles.optionKicker}>ALUNO CADASTRADO</Text>
-                <Text style={styles.optionTitle}>{alunoLabel(aluno)}</Text>
-              </Pressable>
-            ))
-          ) : (
-            <Text style={styles.meta}>Nenhum aluno encontrado com essa busca.</Text>
-          )
+        {!loading && alunosSemVinculo.length === 0 ? (
+          <Text style={styles.meta}>Nenhum aluno sem vinculo disponivel.</Text>
         ) : null}
+        {alunosSemVinculo.map((aluno) => {
+          const selected = selectedAlunoId === aluno.id;
+          return (
+            <Pressable
+              key={aluno.id}
+              style={[styles.alunoButton, selected && styles.optionSelected]}
+              onPress={() => {
+                setSelectedAlunoId(aluno.id);
+                setShowNewAluno(false);
+              }}
+            >
+              <Text style={[styles.alunoButtonText, selected && styles.optionTitleSelected]}>
+                {alunoLabel(aluno)}
+              </Text>
+            </Pressable>
+          );
+        })}
         {selectedAluno ? (
           <View style={styles.confirmBox}>
             <Text style={styles.confirmTitle}>Vincular esse cadastro ao aluno {alunoLabel(selectedAluno)}?</Text>
@@ -281,10 +266,7 @@ export default function AutorizacoesScreen() {
             <View style={styles.confirmActions}>
               <Pressable
                 style={[styles.confirmButton, styles.confirmButtonNo]}
-                onPress={() => {
-                  setSelectedAlunoId('');
-                  setAlunoSearch('');
-                }}
+                onPress={() => setSelectedAlunoId('')}
               >
                 <Text style={[styles.confirmButtonText, styles.confirmButtonTextNo]}>Não</Text>
               </Pressable>
@@ -315,14 +297,14 @@ export default function AutorizacoesScreen() {
             value={newAluno.nome}
             onChangeText={(nome) => setNewAluno((previous) => ({ ...previous, nome }))}
             placeholder="Nome do aluno"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
           />
           <TextInput
             style={styles.input}
             value={newAluno.apelido}
             onChangeText={(apelido) => setNewAluno((previous) => ({ ...previous, apelido }))}
             placeholder="Apelido (opcional)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
           />
           <View style={styles.photoRow}>
             <Image source={newAluno.foto ? { uri: newAluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.formPhoto} />
@@ -342,7 +324,7 @@ export default function AutorizacoesScreen() {
             value={newAluno.emailResponsavel}
             onChangeText={(emailResponsavel) => setNewAluno((previous) => ({ ...previous, emailResponsavel }))}
             placeholder="E-mail do responsavel"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -351,7 +333,7 @@ export default function AutorizacoesScreen() {
             value={newAluno.celular}
             onChangeText={(celular) => setNewAluno((previous) => ({ ...previous, celular: formatPhone(celular) }))}
             placeholder="Celular"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="phone-pad"
             maxLength={16}
           />
@@ -362,7 +344,7 @@ export default function AutorizacoesScreen() {
               setNewAluno((previous) => ({ ...previous, dataNascimento: formatDate(dataNascimento) }))
             }
             placeholder="Data nascimento DD/MM/AAAA (obrigatorio)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             maxLength={10}
           />
@@ -373,7 +355,7 @@ export default function AutorizacoesScreen() {
               setNewAluno((previous) => ({ ...previous, dataPagamento: normalizePaymentDay(dataPagamento) }))
             }
             placeholder="Dia pagamento mensal (1 a 31)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             maxLength={2}
           />
@@ -418,242 +400,219 @@ export default function AutorizacoesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: Theme.background,
-  },
-  container: {
-    gap: 16,
-    padding: 20,
-  },
-  title: {
-    color: Theme.text,
-    fontSize: 30,
-    fontWeight: '900',
-  },
-  subtitle: {
-    color: Theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  card: {
-    gap: 12,
-  },
-  stepHeader: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  stepNumber: {
-    backgroundColor: Theme.primary,
-    borderRadius: 999,
-    color: Theme.white,
-    fontSize: 14,
-    fontWeight: '900',
-    height: 28,
-    lineHeight: 28,
-    textAlign: 'center',
-    width: 28,
-  },
-  stepTitleBox: {
-    flex: 1,
-    gap: 3,
-  },
-  cardTitle: {
-    color: Theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  helpText: {
-    color: Theme.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  contextText: {
-    color: Theme.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  contextStrong: {
-    color: Theme.text,
-    fontWeight: '900',
-  },
-  input: {
-    backgroundColor: Theme.inputBg,
-    borderColor: Theme.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    color: Theme.text,
-    fontSize: 15,
-    minHeight: 50,
-    paddingHorizontal: 14,
-  },
-  photoRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  formPhoto: {
-    borderRadius: 34,
-    height: 68,
-    width: 68,
-  },
-  photoButtons: {
-    flex: 1,
-    gap: 8,
-  },
-  option: {
-    backgroundColor: Theme.inputBg,
-    borderColor: Theme.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 4,
-    padding: 12,
-  },
-  optionSelected: {
-    backgroundColor: Theme.primary,
-    borderColor: Theme.primary,
-  },
-  optionTitle: {
-    color: Theme.text,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  optionKicker: {
-    color: Theme.primary,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  optionTitleSelected: {
-    color: Theme.white,
-  },
-  optionMeta: {
-    color: Theme.textMuted,
-    fontSize: 12,
-  },
-  optionMetaSelected: {
-    color: Theme.white,
-  },
-  meta: {
-    color: Theme.textMuted,
-    fontSize: 13,
-  },
-  selectedBox: {
-    backgroundColor: 'rgba(34, 160, 107, 0.08)',
-    borderColor: Theme.secondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 3,
-    padding: 12,
-  },
-  selectedLabel: {
-    color: Theme.secondary,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-  },
-  selectedText: {
-    color: Theme.text,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  selectedMeta: {
-    color: Theme.textMuted,
-    fontSize: 12,
-  },
-  confirmBox: {
-    backgroundColor: 'rgba(34, 160, 107, 0.08)',
-    borderColor: Theme.secondary,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    padding: 14,
-  },
-  confirmTitle: {
-    color: Theme.text,
-    fontSize: 16,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
-  confirmMeta: {
-    color: Theme.textMuted,
-    fontSize: 13,
-  },
-  confirmActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  confirmButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    flex: 1,
-    minHeight: 42,
-    justifyContent: 'center',
-  },
-  confirmButtonNo: {
-    backgroundColor: Theme.white,
-    borderColor: Theme.border,
-  },
-  confirmButtonYes: {
-    backgroundColor: Theme.primary,
-    borderColor: Theme.primary,
-  },
-  confirmButtonDisabled: {
-    opacity: 0.55,
-  },
-  confirmButtonText: {
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  confirmButtonTextNo: {
-    color: Theme.text,
-  },
-  confirmButtonTextYes: {
-    color: Theme.white,
-  },
-  linkBox: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  linkText: {
-    color: Theme.primary,
-    fontSize: 15,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  label: {
-    color: Theme.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    borderColor: Theme.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  gradeChip: {
-    alignItems: 'center',
-    borderColor: Theme.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  chipText: {
-    color: Theme.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-});
+function createStyles(colors: ThemeColors) {
+  const onPrimary = selectedOnPrimaryText(colors.primary);
+
+  return StyleSheet.create({
+    scroll: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      gap: 16,
+      padding: 20,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 30,
+      fontWeight: '900',
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    card: {
+      gap: 12,
+    },
+    cardTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    helpText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    contextText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    contextStrong: {
+      color: colors.text,
+      fontWeight: '900',
+    },
+    input: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 15,
+      minHeight: 50,
+      paddingHorizontal: 14,
+    },
+    photoRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 12,
+    },
+    formPhoto: {
+      borderRadius: 34,
+      height: 68,
+      width: 68,
+    },
+    photoButtons: {
+      flex: 1,
+      gap: 8,
+    },
+    option: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      gap: 4,
+      padding: 12,
+    },
+    alunoButton: {
+      alignItems: 'center',
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    alunoButtonText: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    optionSelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    optionTitle: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    optionKicker: {
+      color: colors.primary,
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+    },
+    optionTitleSelected: {
+      color: onPrimary,
+    },
+    optionMeta: {
+      color: colors.textMuted,
+      fontSize: 12,
+    },
+    optionMetaSelected: {
+      color: onPrimary,
+    },
+    meta: {
+      color: colors.textMuted,
+      fontSize: 13,
+    },
+    confirmBox: {
+      backgroundColor: 'rgba(34, 160, 107, 0.12)',
+      borderColor: colors.secondary,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 10,
+      padding: 14,
+    },
+    confirmTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '900',
+      lineHeight: 22,
+    },
+    confirmMeta: {
+      color: colors.textMuted,
+      fontSize: 13,
+    },
+    confirmActions: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    confirmButton: {
+      alignItems: 'center',
+      borderRadius: 999,
+      borderWidth: 1,
+      flex: 1,
+      minHeight: 42,
+      justifyContent: 'center',
+    },
+    confirmButtonNo: {
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+    },
+    confirmButtonYes: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    confirmButtonDisabled: {
+      opacity: 0.55,
+    },
+    confirmButtonText: {
+      fontSize: 14,
+      fontWeight: '900',
+    },
+    confirmButtonTextNo: {
+      color: colors.text,
+    },
+    confirmButtonTextYes: {
+      color: onPrimary,
+    },
+    linkBox: {
+      alignItems: 'center',
+      paddingVertical: 4,
+    },
+    linkText: {
+      color: colors.primary,
+      fontSize: 15,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    label: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    chips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    chip: {
+      borderColor: colors.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    gradeChip: {
+      alignItems: 'center',
+      borderColor: colors.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      height: 40,
+      justifyContent: 'center',
+      width: 40,
+    },
+    chipText: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+  });
+}

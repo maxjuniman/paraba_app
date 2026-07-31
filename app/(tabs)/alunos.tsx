@@ -1,7 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Keyboard,
   Pressable,
@@ -19,7 +21,8 @@ import {
   STUDENT_CATEGORY_FILTERS,
   type StudentCategoryId,
 } from '@/constants/StudentCategories';
-import { Theme } from '@/constants/Theme';
+import { type ThemeColors } from '@/constants/Theme';
+import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
@@ -30,6 +33,10 @@ import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
 const GRAUS = [0, 1, 2, 3, 4];
 const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
+
+function selectedOnPrimaryText(primary: string): string {
+  return primary === '#FFFFFF' || primary === '#E5E7EB' ? '#000000' : '#FFFFFF';
+}
 
 function normalizePaymentDay(value: string): string {
   return value.replace(/\D/g, '').slice(0, 2);
@@ -57,6 +64,9 @@ function isoToFormDate(value?: string | null): string {
 export default function AlunosScreen() {
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const topPadding = useScreenTopPadding();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const onPrimary = selectedOnPrimaryText(colors.primary);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -64,6 +74,9 @@ export default function AlunosScreen() {
   const [editingAlunoId, setEditingAlunoId] = useState<string | null>(null);
   const [nameFilter, setNameFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<StudentCategoryId>('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [expandedAlunoId, setExpandedAlunoId] = useState<string | null>(null);
+  const [unlinkingAlunoId, setUnlinkingAlunoId] = useState<string | null>(null);
   const [form, setForm] = useState({
     nome: '',
     apelido: '',
@@ -141,17 +154,9 @@ export default function AlunosScreen() {
         graus: form.graus,
       };
 
-      console.log('[Alunos] enviando cadastro/edicao:', {
-        editingAlunoId,
-        ...alunoBody,
-        foto: alunoBody.foto ? `[base64 ${alunoBody.foto.length} chars]` : undefined,
-      });
-
       const aluno = editingAlunoId
         ? await parabaService.atualizarAluno(editingAlunoId, alunoBody)
         : await parabaService.cadastrarAluno(alunoBody);
-
-      console.log('[Alunos] sucesso:', aluno.id);
 
       setAlunos((previous) =>
         editingAlunoId
@@ -161,11 +166,8 @@ export default function AlunosScreen() {
       resetForm();
       setShowForm(false);
     } catch (error) {
-      console.log('[Alunos] erro ao salvar aluno:', error);
       if (error && typeof error === 'object' && 'response' in error) {
         const axiosError = error as { response?: { status?: number; data?: unknown } };
-        console.log('[Alunos] status:', axiosError.response?.status);
-        console.log('[Alunos] response data:', axiosError.response?.data);
       }
       showError(apiErrorMessage(error, 'Nao foi possivel cadastrar o aluno.'));
     } finally {
@@ -200,21 +202,54 @@ export default function AlunosScreen() {
     }
   };
 
+  const confirmUnlinkUser = (aluno: Aluno) => {
+    Alert.alert(
+      'Desvincular usuario',
+      `Remover o vinculo de ${aluno.nome}? O usuario volta a ficar pendente de autorizacao.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Desvincular',
+          style: 'destructive',
+          onPress: () => {
+            void unlinkUser(aluno.id);
+          },
+        },
+      ]
+    );
+  };
+
+  const unlinkUser = async (alunoId: string) => {
+    try {
+      setUnlinkingAlunoId(alunoId);
+      const updated = await parabaService.desvincularAlunoUser(alunoId);
+      setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (error) {
+      showError(apiErrorMessage(error, 'Nao foi possivel desvincular o usuario.'));
+    } finally {
+      setUnlinkingAlunoId(null);
+    }
+  };
+
   const filteredAlunos = useMemo(() => {
     const normalizedName = nameFilter.trim().toLowerCase();
 
-    return alunos.filter((aluno) => {
-      const matchesName =
-        !normalizedName ||
-        aluno.nome.toLowerCase().includes(normalizedName) ||
-        (aluno.apelido ?? '').toLowerCase().includes(normalizedName);
+    return alunos
+      .filter((aluno) => {
+        const matchesName =
+          !normalizedName ||
+          aluno.nome.toLowerCase().includes(normalizedName) ||
+          (aluno.apelido ?? '').toLowerCase().includes(normalizedName);
 
-      const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
-      const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
+        const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+        const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
 
-      return matchesName && matchesCategory;
-    });
+        return matchesName && matchesCategory;
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
   }, [alunos, categoryFilter, nameFilter]);
+
+  const hasActiveFilters = Boolean(nameFilter.trim()) || categoryFilter !== 'all';
 
   return (
     <ScrollView
@@ -249,14 +284,14 @@ export default function AlunosScreen() {
             value={form.nome}
             onChangeText={(nome) => setForm((previous) => ({ ...previous, nome }))}
             placeholder="Nome do aluno"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
           />
           <TextInput
             style={styles.input}
             value={form.apelido}
             onChangeText={(apelido) => setForm((previous) => ({ ...previous, apelido }))}
             placeholder="Apelido (opcional)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
           />
           <View style={styles.photoRow}>
             <Image source={form.foto ? { uri: form.foto } : DEFAULT_STUDENT_PHOTO} style={styles.formPhoto} />
@@ -278,7 +313,7 @@ export default function AlunosScreen() {
               setForm((previous) => ({ ...previous, emailResponsavel }))
             }
             placeholder="E-mail (opcional)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -287,7 +322,7 @@ export default function AlunosScreen() {
             value={form.celular}
             onChangeText={(celular) => setForm((previous) => ({ ...previous, celular: formatPhone(celular) }))}
             placeholder="Celular"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="phone-pad"
             maxLength={16}
           />
@@ -298,7 +333,7 @@ export default function AlunosScreen() {
               setForm((previous) => ({ ...previous, dataNascimento: formatDate(dataNascimento) }))
             }
             placeholder="Data nascimento DD/MM/AAAA (obrigatorio)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             maxLength={10}
           />
@@ -309,7 +344,7 @@ export default function AlunosScreen() {
               setForm((previous) => ({ ...previous, dataPagamento: normalizePaymentDay(dataPagamento) }))
             }
             placeholder="Dia pagamento mensal (1 a 31)"
-            placeholderTextColor={Theme.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
             maxLength={2}
           />
@@ -351,56 +386,147 @@ export default function AlunosScreen() {
 
       <Text style={styles.sectionTitle}>Alunos cadastrados</Text>
       <AppCard style={styles.filtersCard}>
-        <Text style={styles.cardTitle}>Filtros</Text>
-        <TextInput
-          style={styles.input}
-          value={nameFilter}
-          onChangeText={setNameFilter}
-          placeholder="Filtrar por nome ou apelido"
-          placeholderTextColor={Theme.textMuted}
-        />
-        <View style={styles.optionsGrid}>
-          {STUDENT_CATEGORY_FILTERS.map((category) => {
-            const selected = categoryFilter === category.id;
-            return (
-              <Pressable
-                key={category.id}
-                style={[styles.option, selected && styles.optionSelected]}
-                onPress={() => setCategoryFilter(category.id)}
-              >
-                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
-                  {category.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <Pressable
+          style={styles.filtersHeader}
+          onPress={() => setFiltersOpen((open) => !open)}
+          hitSlop={6}
+        >
+          <View style={styles.filtersHeaderText}>
+            <Text style={styles.cardTitle}>Filtros</Text>
+            {hasActiveFilters && !filtersOpen ? (
+              <Text style={styles.filtersHint}>Filtros ativos</Text>
+            ) : null}
+          </View>
+          <Ionicons
+            name={filtersOpen ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={colors.textMuted}
+          />
+        </Pressable>
+
+        {filtersOpen ? (
+          <>
+            <TextInput
+              style={styles.input}
+              value={nameFilter}
+              onChangeText={setNameFilter}
+              placeholder="Filtrar por nome ou apelido"
+              placeholderTextColor={colors.textMuted}
+            />
+            <View style={styles.optionsGrid}>
+              {STUDENT_CATEGORY_FILTERS.map((category) => {
+                const selected = categoryFilter === category.id;
+                return (
+                  <Pressable
+                    key={category.id}
+                    style={[styles.option, selected && styles.optionSelected]}
+                    onPress={() => setCategoryFilter(category.id)}
+                  >
+                    <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                      {category.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
       </AppCard>
-      {loading ? <ActivityIndicator color={Theme.primary} /> : null}
+      {loading ? <ActivityIndicator color={colors.primary} /> : null}
       {filteredAlunos.map((aluno) => {
         const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+        const expanded = expandedAlunoId === aluno.id;
+        const hasUser = Boolean(aluno.userId);
+
         return (
-          <Pressable key={aluno.id} onPress={() => startEditingAluno(aluno)} style={({ pressed }) => pressed && styles.cardPressed}>
-            <AppCard style={styles.studentCard}>
-              <Image source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.studentPhoto} />
-              <View style={styles.studentHeader}>
-                <Text style={styles.studentName}>{aluno.nome}</Text>
+          <AppCard key={aluno.id} style={[styles.studentCard, expanded && styles.studentCardExpanded]}>
+            <Pressable
+              style={({ pressed }) => [styles.studentSummary, pressed && styles.cardPressed]}
+              onPress={() => setExpandedAlunoId((current) => (current === aluno.id ? null : aluno.id))}
+            >
+              <View
+                style={[
+                  styles.userLinkBadge,
+                  hasUser ? styles.userLinkBadgeOn : styles.userLinkBadgeOff,
+                ]}
+              >
+                <Ionicons
+                  name={hasUser ? 'person' : 'person-outline'}
+                  size={16}
+                  color={hasUser ? colors.secondary : colors.textMuted}
+                />
               </View>
-              {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
-              <Text style={styles.studentMeta}>Categoria: {category?.label ?? 'sem categoria'}</Text>
-              <Text style={styles.studentMeta}>Nascimento: {isoToBrDate(aluno.dataNascimento)}</Text>
-              <Text style={styles.studentMeta}>
-                Faixa: {aluno.faixaAtual ?? 'nao informada'} ({aluno.graus ?? 0} graus)
-              </Text>
-              <Text style={styles.studentMeta}>
-                Pagamento: {aluno.dataPagamento ? `todo dia ${aluno.dataPagamento}` : 'nao informado'}
-              </Text>
-              <Text style={styles.studentMeta}>
-                Presencas: {aluno.totalPresencas ?? 0} | Ultima: {isoToBrDate(aluno.ultimaPresenca)}
-              </Text>
-              <Text style={styles.editHint}>Toque para editar</Text>
-            </AppCard>
-          </Pressable>
+              <View style={styles.studentSummaryText}>
+                <Text style={styles.studentName} numberOfLines={1}>
+                  {aluno.nome}
+                </Text>
+                <Text style={styles.studentMeta} numberOfLines={1}>
+                  {aluno.apelido ? `${aluno.apelido} · ` : ''}
+                  {category?.label ?? 'sem categoria'}
+                </Text>
+              </View>
+              <Image
+                source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO}
+                style={styles.studentPhoto}
+              />
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={colors.textMuted}
+                style={styles.expandIcon}
+              />
+            </Pressable>
+
+            {expanded ? (
+              <View style={styles.studentDetails}>
+                <View style={styles.userLinkRow}>
+                  <Ionicons
+                    name={hasUser ? 'person' : 'person-outline'}
+                    size={15}
+                    color={hasUser ? colors.secondary : colors.textMuted}
+                  />
+                  <Text style={[styles.studentMeta, hasUser && styles.userLinkTextOn]}>
+                    {hasUser ? 'Usuario vinculado' : 'Sem usuario vinculado'}
+                  </Text>
+                </View>
+                <Text style={styles.studentMeta}>Nascimento: {isoToBrDate(aluno.dataNascimento)}</Text>
+                <Text style={styles.studentMeta}>
+                  Faixa: {aluno.faixaAtual ?? 'nao informada'} ({aluno.graus ?? 0} graus)
+                </Text>
+                <Text style={styles.studentMeta}>
+                  Pagamento: {aluno.dataPagamento ? `todo dia ${aluno.dataPagamento}` : 'nao informado'}
+                </Text>
+                <Text style={styles.studentMeta}>
+                  Presencas: {aluno.totalPresencas ?? 0} | Ultima: {isoToBrDate(aluno.ultimaPresenca)}
+                </Text>
+                <View style={styles.studentActions}>
+                  <Pressable
+                    style={styles.editButton}
+                    onPress={() => startEditingAluno(aluno)}
+                  >
+                    <Ionicons name="create-outline" size={16} color={onPrimary} />
+                    <Text style={styles.editButtonText}>Editar</Text>
+                  </Pressable>
+                  {hasUser ? (
+                    <Pressable
+                      style={[styles.unlinkButton, unlinkingAlunoId === aluno.id && styles.unlinkButtonDisabled]}
+                      disabled={unlinkingAlunoId === aluno.id}
+                      onPress={() => confirmUnlinkUser(aluno)}
+                    >
+                      {unlinkingAlunoId === aluno.id ? (
+                        <ActivityIndicator color={colors.text} size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="person-remove-outline" size={16} color={colors.text} />
+                          <Text style={styles.unlinkButtonText}>Desvincular</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+          </AppCard>
         );
       })}
       {!loading && filteredAlunos.length === 0 ? (
@@ -417,157 +543,239 @@ export default function AlunosScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: Theme.background,
-  },
-  container: {
-    gap: 16,
-    padding: 20,
-  },
-  title: {
-    color: Theme.text,
-    fontSize: 30,
-    fontWeight: '900',
-  },
-  subtitle: {
-    color: Theme.textMuted,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  formCard: {
-    gap: 12,
-  },
-  filtersCard: {
-    gap: 12,
-  },
-  cardTitle: {
-    color: Theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  input: {
-    backgroundColor: Theme.inputBg,
-    borderColor: Theme.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    color: Theme.text,
-    fontSize: 15,
-    minHeight: 50,
-    paddingHorizontal: 14,
-  },
-  photoRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  formPhoto: {
-    borderRadius: 34,
-    height: 68,
-    width: 68,
-  },
-  photoButtons: {
-    flex: 1,
-    gap: 8,
-  },
-  fieldLabel: {
-    color: Theme.text,
-    fontSize: 13,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  optionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  option: {
-    borderColor: Theme.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  optionSelected: {
-    backgroundColor: Theme.primary,
-    borderColor: Theme.primary,
-  },
-  optionText: {
-    color: Theme.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  optionTextSelected: {
-    color: Theme.white,
-  },
-  gradeRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  gradeOption: {
-    alignItems: 'center',
-    borderColor: Theme.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  sectionTitle: {
-    color: Theme.text,
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 6,
-  },
-  studentCard: {
-    gap: 6,
-    minHeight: 92,
-    paddingRight: 92,
-    position: 'relative',
-  },
-  studentPhoto: {
-    borderColor: Theme.border,
-    borderRadius: 28,
-    borderWidth: 1,
-    height: 56,
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    width: 56,
-  },
-  studentHeader: {
-    flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'space-between',
-  },
-  studentName: {
-    color: Theme.text,
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  studentId: {
-    color: Theme.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  studentMeta: {
-    color: Theme.textMuted,
-    fontSize: 13,
-  },
-  empty: {
-    color: Theme.textMuted,
-    fontSize: 15,
-    textAlign: 'center',
-  },
-  cardPressed: {
-    opacity: 0.82,
-  },
-  editHint: {
-    color: Theme.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  const onPrimary = selectedOnPrimaryText(colors.primary);
+
+  return StyleSheet.create({
+    scroll: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    container: {
+      gap: 16,
+      padding: 20,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 30,
+      fontWeight: '900',
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    formCard: {
+      gap: 12,
+    },
+    filtersCard: {
+      gap: 12,
+    },
+    filtersHeader: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    filtersHeaderText: {
+      flex: 1,
+      gap: 2,
+    },
+    cardTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '800',
+    },
+    filtersHint: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    input: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 15,
+      minHeight: 50,
+      paddingHorizontal: 14,
+    },
+    photoRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 12,
+    },
+    formPhoto: {
+      borderRadius: 34,
+      height: 68,
+      width: 68,
+    },
+    photoButtons: {
+      flex: 1,
+      gap: 8,
+    },
+    fieldLabel: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+      marginTop: 2,
+    },
+    optionsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    option: {
+      borderColor: colors.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    optionSelected: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    optionText: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    optionTextSelected: {
+      color: onPrimary,
+    },
+    gradeRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    gradeOption: {
+      alignItems: 'center',
+      borderColor: colors.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      height: 40,
+      justifyContent: 'center',
+      width: 40,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '800',
+      marginTop: 6,
+    },
+    studentCard: {
+      gap: 0,
+      overflow: 'hidden',
+      paddingVertical: 12,
+    },
+    studentCardExpanded: {
+      gap: 12,
+    },
+    studentSummary: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 10,
+      minHeight: 48,
+    },
+    userLinkBadge: {
+      alignItems: 'center',
+      borderRadius: 999,
+      height: 30,
+      justifyContent: 'center',
+      width: 30,
+    },
+    userLinkBadgeOn: {
+      backgroundColor: 'rgba(34, 160, 107, 0.14)',
+    },
+    userLinkBadgeOff: {
+      backgroundColor: colors.inputBg,
+    },
+    studentSummaryText: {
+      flex: 1,
+      gap: 2,
+      minWidth: 0,
+    },
+    userLinkRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 6,
+    },
+    userLinkTextOn: {
+      color: colors.secondary,
+      fontWeight: '700',
+    },
+    studentPhoto: {
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      height: 44,
+      width: 44,
+    },
+    expandIcon: {
+      marginLeft: 2,
+    },
+    studentName: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    studentMeta: {
+      color: colors.textMuted,
+      fontSize: 13,
+    },
+    studentDetails: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      gap: 6,
+      paddingTop: 12,
+    },
+    studentActions: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 6,
+    },
+    editButton: {
+      alignItems: 'center',
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      flexDirection: 'row',
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    editButtonText: {
+      color: onPrimary,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    unlinkButton: {
+      alignItems: 'center',
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: 6,
+      minHeight: 40,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    unlinkButtonDisabled: {
+      opacity: 0.6,
+    },
+    unlinkButtonText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    empty: {
+      color: colors.textMuted,
+      fontSize: 15,
+      textAlign: 'center',
+    },
+    cardPressed: {
+      opacity: 0.82,
+    },
+  });
+}

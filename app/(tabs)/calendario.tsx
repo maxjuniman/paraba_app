@@ -5,8 +5,13 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { STUDENT_CATEGORIES, type StudentCategory } from '@/constants/StudentCategories';
-import { Theme } from '@/constants/Theme';
+import {
+  getStudentCategoryByBirthDate,
+  STUDENT_CATEGORIES,
+  type StudentCategory,
+} from '@/constants/StudentCategories';
+import { type ThemeColors } from '@/constants/Theme';
+import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
@@ -15,6 +20,7 @@ import {
   type AulaCategoria,
   type AulaCalendarioMes,
   type AulaRecorrencia,
+  type MeuAluno,
   type TipoAula,
 } from '@/services/parabaService';
 import { brDateToIso, formatDate } from '@/utils/formatters';
@@ -40,6 +46,13 @@ type DayGroup = {
   diaSemana: number;
   aulas: AulaCalendarioMes[];
 };
+
+type AulaTimeFilter = 'proximas' | 'passadas';
+
+const AULA_TIME_FILTERS: { id: AulaTimeFilter; label: string }[] = [
+  { id: 'proximas', label: 'Proximas' },
+  { id: 'passadas', label: 'Passadas' },
+];
 
 function isProfessorUser(user?: SessionUser | null): boolean {
   return user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
@@ -135,8 +148,11 @@ function groupAulasByDay(aulas: AulaCalendarioMes[]): DayGroup[] {
 
 export default function CalendarioScreen() {
   const topPadding = useScreenTopPadding();
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [meuAluno, setMeuAluno] = useState<MeuAluno | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -151,8 +167,13 @@ export default function CalendarioScreen() {
   const [dataAvulsa, setDataAvulsa] = useState('');
   const [hora, setHora] = useState('');
   const [categorias, setCategorias] = useState<AulaCategoria[]>([]);
+  const [timeFilter, setTimeFilter] = useState<AulaTimeFilter>('proximas');
 
   const isProfessor = isProfessorUser(user);
+  const studentCategoryId = useMemo(
+    () => getStudentCategoryByBirthDate(meuAluno?.dataNascimento)?.id ?? null,
+    [meuAluno?.dataNascimento]
+  );
   const tiposAulaVisiveis = useMemo(
     () =>
       tiposAula.filter(
@@ -161,10 +182,21 @@ export default function CalendarioScreen() {
     [tiposAula]
   );
   const aulasVisiveis = useMemo(() => {
-    if (isProfessor) return aulas;
-    return aulas.filter((aula) => !hasAulaOccurred(aula.data, aula.hora));
-  }, [aulas, isProfessor]);
-  const aulasPorDia = useMemo(() => groupAulasByDay(aulasVisiveis), [aulasVisiveis]);
+    return aulas.filter((aula) => {
+      const occurred = hasAulaOccurred(aula.data, aula.hora);
+      const matchesTime = timeFilter === 'passadas' ? occurred : !occurred;
+      if (!matchesTime) return false;
+      if (isProfessor) return true;
+      if (!studentCategoryId) return false;
+      const cats = aula.categorias ?? [];
+      if (cats.length === 0) return true;
+      return cats.includes(studentCategoryId);
+    });
+  }, [aulas, isProfessor, studentCategoryId, timeFilter]);
+  const aulasPorDia = useMemo(() => {
+    const groups = groupAulasByDay(aulasVisiveis);
+    return timeFilter === 'passadas' ? [...groups].reverse() : groups;
+  }, [aulasVisiveis, timeFilter]);
 
   const resetForm = useCallback(() => {
     setNewTipoAula('');
@@ -180,14 +212,18 @@ export default function CalendarioScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [currentUser, tipos, calendario] = await Promise.all([
-        getCurrentUser(),
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+      const professor = isProfessorUser(currentUser);
+
+      const [tipos, calendario, me] = await Promise.all([
         parabaService.listarTiposAula(),
         parabaService.listarCalendarioMes(month),
+        professor ? Promise.resolve(null) : parabaService.obterMeuAluno().catch(() => null),
       ]);
-      setUser(currentUser);
       setTiposAula(tipos);
       setAulas(calendario.aulas);
+      setMeuAluno(me);
       const tiposVisiveis = tipos.filter(
         (tipo) => tipo.id !== 'aula-avulsa' && tipo.nome.trim().toLowerCase() !== 'aula avulsa'
       );
@@ -280,9 +316,7 @@ export default function CalendarioScreen() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingTop: topPadding }]}>
       <Text style={styles.title}>Calendario</Text>
-      <Text style={styles.subtitle}>
-        {isProfessor ? 'Veja as aulas do mes e seus horarios.' : 'Veja suas proximas aulas e horarios.'}
-      </Text>
+      <Text style={styles.subtitle}>Veja as aulas do mes e seus horarios.</Text>
 
       {isProfessor ? (
         <>
@@ -336,7 +370,7 @@ export default function CalendarioScreen() {
                     });
                   }}
                 >
-                  <Ionicons name="add" size={18} color={showNewTipoInput ? Theme.white : Theme.primary} />
+                  <Ionicons name="add" size={18} color={showNewTipoInput ? (colors.primary === '#FFFFFF' ? '#000000' : '#FFFFFF') : colors.primary} />
                 </Pressable>
               </View>
 
@@ -346,7 +380,7 @@ export default function CalendarioScreen() {
                   value={newTipoAula}
                   onChangeText={setNewTipoAula}
                   placeholder="Criar novo tipo de aula"
-                  placeholderTextColor={Theme.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   autoFocus
                 />
               ) : null}
@@ -400,7 +434,7 @@ export default function CalendarioScreen() {
                     value={dataAvulsa}
                     onChangeText={(value) => setDataAvulsa(formatDate(value))}
                     placeholder="DD/MM/AAAA"
-                    placeholderTextColor={Theme.textMuted}
+                    placeholderTextColor={colors.textMuted}
                     keyboardType="numeric"
                     maxLength={10}
                   />
@@ -413,7 +447,7 @@ export default function CalendarioScreen() {
                 value={hora}
                 onChangeText={(value) => setHora(normalizeHour(value))}
                 placeholder="19:30"
-                placeholderTextColor={Theme.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
                 maxLength={5}
               />
@@ -444,19 +478,38 @@ export default function CalendarioScreen() {
 
       <View style={styles.monthHeader}>
         <Pressable style={styles.monthButton} onPress={() => setMonth((previous) => moveMonth(previous, -1))}>
-          <Ionicons name="chevron-back" size={20} color={Theme.primary} />
+          <Ionicons name="chevron-back" size={20} color={colors.primary} />
         </Pressable>
         <Text style={styles.monthTitle}>{formatMonth(month)}</Text>
         <Pressable style={styles.monthButton} onPress={() => setMonth((previous) => moveMonth(previous, 1))}>
-          <Ionicons name="chevron-forward" size={20} color={Theme.primary} />
+          <Ionicons name="chevron-forward" size={20} color={colors.primary} />
         </Pressable>
       </View>
 
-      {loading ? <ActivityIndicator color={Theme.primary} /> : null}
+      <View style={styles.filterRow}>
+        {AULA_TIME_FILTERS.map((option) => {
+          const selected = timeFilter === option.id;
+          return (
+            <Pressable
+              key={option.id}
+              style={[styles.filterChip, selected && styles.filterChipSelected]}
+              onPress={() => setTimeFilter(option.id)}
+            >
+              <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {loading ? <ActivityIndicator color={colors.primary} /> : null}
 
       {!loading && aulasPorDia.length === 0 ? (
         <Text style={styles.empty}>
-          {isProfessor ? 'Nenhuma aula cadastrada para este mes.' : 'Nenhuma aula proxima neste mes.'}
+          {timeFilter === 'passadas'
+            ? 'Nenhuma aula passada neste mes.'
+            : 'Nenhuma aula proxima neste mes.'}
         </Text>
       ) : null}
 
@@ -499,22 +552,23 @@ export default function CalendarioScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   scroll: {
     flex: 1,
-    backgroundColor: Theme.background,
+    backgroundColor: colors.background,
   },
   container: {
     gap: 14,
     padding: 20,
   },
   title: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 30,
     fontWeight: '900',
   },
   subtitle: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     lineHeight: 22,
   },
@@ -522,21 +576,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardTitle: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '900',
   },
   label: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '800',
   },
   input: {
-    backgroundColor: Theme.inputBg,
-    borderColor: Theme.border,
+    backgroundColor: colors.inputBg,
+    borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,
-    color: Theme.text,
+    color: colors.text,
     fontSize: 15,
     minHeight: 50,
     paddingHorizontal: 14,
@@ -547,7 +601,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    borderColor: Theme.border,
+    borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 12,
@@ -555,7 +609,7 @@ const styles = StyleSheet.create({
   },
   addTipoChip: {
     alignItems: 'center',
-    borderColor: Theme.border,
+    borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
     height: 38,
@@ -564,7 +618,7 @@ const styles = StyleSheet.create({
   },
   dayChip: {
     alignItems: 'center',
-    borderColor: Theme.border,
+    borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
     minWidth: 48,
@@ -572,16 +626,16 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   chipSelected: {
-    backgroundColor: Theme.primary,
-    borderColor: Theme.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   chipText: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '800',
   },
   chipTextSelected: {
-    color: Theme.white,
+    color: colors.primary === '#FFFFFF' ? '#000000' : '#FFFFFF',
   },
   monthHeader: {
     alignItems: 'center',
@@ -591,8 +645,8 @@ const styles = StyleSheet.create({
   },
   monthButton: {
     alignItems: 'center',
-    backgroundColor: Theme.white,
-    borderColor: Theme.border,
+    backgroundColor: colors.card,
+    borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
     height: 42,
@@ -600,13 +654,37 @@ const styles = StyleSheet.create({
     width: 42,
   },
   monthTitle: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '900',
     textTransform: 'capitalize',
   },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  filterChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  filterChipTextSelected: {
+    color: colors.primary === '#FFFFFF' ? '#000000' : '#FFFFFF',
+  },
   empty: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
   },
@@ -619,12 +697,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   dayTitle: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 17,
     fontWeight: '900',
   },
   daySubtitle: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -638,11 +716,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   lessonRowDivider: {
-    borderBottomColor: Theme.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   lessonHour: {
-    color: Theme.primary,
+    color: colors.primary,
     fontSize: 15,
     fontWeight: '900',
     minWidth: 52,
@@ -652,19 +730,21 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   lessonTitle: {
-    color: Theme.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '800',
   },
   lessonMeta: {
-    color: Theme.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
   },
   lessonPresentes: {
-    color: Theme.secondary,
+    color: colors.secondary,
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
     marginTop: 2,
   },
 });
+}
+

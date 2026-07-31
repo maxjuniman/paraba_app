@@ -2,19 +2,14 @@ import { Image, Modal, Pressable, StyleSheet, Text } from 'react-native';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { AppButton } from './AppButton';
 
-type NotificationPermissionModalProps = {
+type UpdateReadyModalProps = {
   visible: boolean;
   loading?: boolean;
-  onAllow: () => void;
+  onRestart: () => void;
   onLater: () => void;
 };
 
-export function NotificationPermissionModal({
-  visible,
-  loading,
-  onAllow,
-  onLater,
-}: NotificationPermissionModalProps) {
+export function UpdateReadyModal({ visible, loading, onRestart, onLater }: UpdateReadyModalProps) {
   const { colors } = useAppTheme();
   const styles = createStyles(colors);
 
@@ -23,16 +18,15 @@ export function NotificationPermissionModal({
       <Pressable style={styles.overlay} onPress={onLater}>
         <Pressable style={styles.box}>
           <Image source={require('../../assets/img/logo-padded.png')} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.title}>Fique por dentro</Text>
+          <Text style={styles.title}>Atualização pronta</Text>
           <Text style={styles.message}>
-            Queremos avisar quando uma aula avulsa for criada. Ative as notificações para receber esses avisos no
-            celular.
+            Uma nova versão foi baixada. Reinicie o app para aplicar as mudanças.
           </Text>
-          <AppButton onPress={onAllow} loading={loading}>
-            Permitir notificações
+          <AppButton onPress={onRestart} loading={loading}>
+            Reiniciar agora
           </AppButton>
           <AppButton variant="ghost" onPress={onLater} disabled={loading}>
-            Agora não
+            Depois
           </AppButton>
         </Pressable>
       </Pressable>
