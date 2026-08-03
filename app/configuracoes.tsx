@@ -74,6 +74,7 @@ export default function ConfiguracoesScreen() {
   };
 
   const isProfessor = user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
+  const isAluno = user?.tipo === 2 || user?.tipo === 'aluno';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingTop: topPadding }]}>
@@ -96,6 +97,17 @@ export default function ConfiguracoesScreen() {
           subtitle="Nome, celular e senha"
           onPress={() => router.push('/configuracoes-editar')}
         />
+        {isAluno ? (
+          <>
+            <View style={styles.divider} />
+            <SettingRow
+              icon="chatbubble-ellipses-outline"
+              label="Deixar depoimento"
+              subtitle="Publicar no site da equipe"
+              onPress={() => router.push('/configuracoes-depoimento')}
+            />
+          </>
+        ) : null}
         {isProfessor ? (
           <>
             <View style={styles.divider} />

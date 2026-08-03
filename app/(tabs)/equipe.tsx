@@ -41,6 +41,24 @@ const BELT_COLORS: Record<string, string> = {
   preta: '#111827',
 };
 
+/** Ordem do jiu-jitsu: faixa mais alta primeiro (preta -> branca). */
+const FAIXA_RANK: Record<string, number> = {
+  preta: 0,
+  marrom: 1,
+  roxa: 2,
+  azul: 3,
+  verde: 4,
+  laranja: 5,
+  amarela: 6,
+  cinza: 7,
+  branca: 8,
+};
+
+function faixaRank(faixa?: string | null): number {
+  if (!faixa) return 99;
+  return FAIXA_RANK[faixa.trim().toLowerCase()] ?? 98;
+}
+
 function formatBirthDateWithAge(isoDate?: string | null): string {
   if (!isoDate) return 'Nascimento nao informado';
   const dateOnly = isoDate.trim().slice(0, 10);
@@ -92,16 +110,26 @@ export default function EquipeScreen() {
   const filteredAlunos = useMemo(() => {
     const normalizedName = nameFilter.trim().toLowerCase();
 
-    return alunos.filter((aluno) => {
-      const matchesName =
-        !normalizedName ||
-        aluno.nome.toLowerCase().includes(normalizedName) ||
-        (aluno.apelido ?? '').toLowerCase().includes(normalizedName);
-      const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
-      const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
+    return alunos
+      .filter((aluno) => {
+        const matchesName =
+          !normalizedName ||
+          aluno.nome.toLowerCase().includes(normalizedName) ||
+          (aluno.apelido ?? '').toLowerCase().includes(normalizedName);
+        const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+        const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
 
-      return matchesName && matchesCategory;
-    });
+        return matchesName && matchesCategory;
+      })
+      .sort((a, b) => {
+        const byFaixa = faixaRank(a.faixaAtual) - faixaRank(b.faixaAtual);
+        if (byFaixa !== 0) return byFaixa;
+        const byGraus = (b.graus ?? 0) - (a.graus ?? 0);
+        if (byGraus !== 0) return byGraus;
+        const aName = a.apelido?.trim() || a.nome;
+        const bName = b.apelido?.trim() || b.nome;
+        return aName.localeCompare(bName, 'pt-BR', { sensitivity: 'base' });
+      });
   }, [alunos, categoryFilter, nameFilter]);
 
   const hasActiveFilters = Boolean(nameFilter.trim()) || categoryFilter !== 'all';

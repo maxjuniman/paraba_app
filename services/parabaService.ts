@@ -70,6 +70,17 @@ export type EquipeAluno = Pick<Aluno, 'id' | 'nome' | 'apelido' | 'foto' | 'data
 export type MeuAluno = EquipeAluno &
   Pick<Aluno, 'dataPagamento' | 'pagamentoPago' | 'pagamentoReferencia' | 'pagamentosPagos' | 'createdAt' | 'cadastroAppAt'>;
 
+export type Depoimento = {
+  id: string;
+  nome: string;
+  texto: string;
+  faixa?: string | null;
+  userId?: string | null;
+  ativo: boolean;
+  ordem: number;
+  createdAt?: string;
+};
+
 export type Presenca = {
   id: string;
   alunoId: string;
@@ -410,5 +421,15 @@ export const parabaService = {
       aluno_id: body.alunoId,
     });
     return unwrapData<VideoUpdate>(data);
+  },
+
+  async obterMeuDepoimento(): Promise<Depoimento | null> {
+    const { data } = await api.get<{ data?: Depoimento | null }>('/depoimentos/me');
+    return data?.data ?? null;
+  },
+
+  async salvarMeuDepoimento(texto: string): Promise<Depoimento> {
+    const { data } = await api.put<{ data?: Depoimento } | Depoimento>('/depoimentos/me', { texto });
+    return unwrapData<Depoimento>(data);
   },
 };

@@ -137,7 +137,7 @@ export default function HomeScreen() {
 
             setPendingAuthorizations(0);
             setMonthlyBirthdays(getMonthlyBirthdays(equipe));
-            setMeuPagamento(pagamento);
+            setMeuPagamento(pagamento?.id ? (pagamento as MeuAluno) : null);
           }
         } catch {
           if (active) {
