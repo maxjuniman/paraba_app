@@ -24,7 +24,7 @@ export type AlunoBody = {
   apelido?: string;
   foto?: string;
   emailResponsavel?: string;
-  celular?: string;
+  celular: string;
   dataNascimento: string;
   dataPagamento?: string;
   faixaAtual?: string;
@@ -45,6 +45,7 @@ export type Aluno = {
   pagamentosPagos?: string[] | null;
   faixaAtual?: string | null;
   graus?: number | null;
+  ativo?: boolean;
   userId?: string | null;
   user?: Pick<SessionUser, 'id' | 'nome' | 'email' | 'ativo'> | null;
   cadastroAppAt?: string | null;
@@ -79,6 +80,7 @@ export type Presenca = {
 
 export type PresencaDiaAluno = Aluno & {
   presente: boolean;
+  presentePorAula?: Record<string, boolean>;
   presenca?: Presenca | null;
 };
 
@@ -355,6 +357,11 @@ export const parabaService = {
 
   async desativarUsuarioAluno(alunoId: string): Promise<Aluno> {
     const { data } = await api.patch<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}/desativar-user`);
+    return unwrapData<Aluno>(data);
+  },
+
+  async atualizarStatusAluno(alunoId: string, ativo: boolean): Promise<Aluno> {
+    const { data } = await api.patch<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}/ativo`, { ativo });
     return unwrapData<Aluno>(data);
   },
 

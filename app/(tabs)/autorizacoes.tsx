@@ -5,6 +5,7 @@ import {
   Image,
   Keyboard,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,7 +21,7 @@ import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService, type Aluno, type PendingUser } from '@/services/parabaService';
-import { brDateToIso, formatDate, formatPhone } from '@/utils/formatters';
+import { brDateToIso, formatDate, formatPhone, isValidBrazilMobile } from '@/utils/formatters';
 import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
 const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
@@ -50,6 +51,7 @@ export default function AutorizacoesScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
@@ -68,21 +70,33 @@ export default function AutorizacoesScreen() {
     graus: 0,
   });
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [usersData, alunosData] = await Promise.all([
-        parabaService.listarUsuariosPendentes(),
-        parabaService.listarAlunos(),
-      ]);
-      setPendingUsers(usersData);
-      setAlunos(alunosData);
-    } catch (error) {
-      showError(apiErrorMessage(error, 'Nao foi possivel carregar as autorizacoes.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [showError]);
+  const load = useCallback(
+    async (options?: { refresh?: boolean }) => {
+      const isRefresh = Boolean(options?.refresh);
+      try {
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+        const [usersData, alunosData] = await Promise.all([
+          parabaService.listarUsuariosPendentes(),
+          parabaService.listarAlunos(),
+        ]);
+        setPendingUsers(usersData);
+        setAlunos(alunosData);
+      } catch (error) {
+        showError(apiErrorMessage(error, 'Nao foi possivel carregar as autorizacoes.'));
+      } finally {
+        if (isRefresh) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [showError]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -90,7 +104,7 @@ export default function AutorizacoesScreen() {
     }, [load])
   );
 
-  const alunosSemVinculo = alunos.filter((aluno) => !aluno.userId);
+  const alunosSemVinculo = alunos.filter((aluno) => !aluno.userId && aluno.ativo !== false);
   const selectedPendingUser = pendingUsers.find((user) => user.id === selectedUserId);
   const selectedAluno = alunos.find((aluno) => aluno.id === selectedAlunoId);
 
@@ -152,6 +166,11 @@ export default function AutorizacoesScreen() {
       return;
     }
 
+    if (!isValidBrazilMobile(newAluno.celular)) {
+      showError('Informe um celular valido com DDD.');
+      return;
+    }
+
     const dataPagamento = newAluno.dataPagamento.trim();
     if (dataPagamento && !isValidPaymentDay(dataPagamento)) {
       showError('Informe o dia de pagamento entre 1 e 31.');
@@ -166,7 +185,7 @@ export default function AutorizacoesScreen() {
           apelido: newAluno.apelido.trim() || undefined,
           foto: newAluno.foto || undefined,
           emailResponsavel: newAluno.emailResponsavel.trim() || undefined,
-          celular: newAluno.celular.trim() || undefined,
+          celular: newAluno.celular.trim(),
           dataNascimento,
           dataPagamento: dataPagamento || undefined,
           faixaAtual: newAluno.faixaAtual || undefined,
@@ -199,6 +218,16 @@ export default function AutorizacoesScreen() {
       style={styles.scroll}
       contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
       keyboardShouldPersistTaps="handled"
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => {
+            void load({ refresh: true });
+          }}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
     >
       <Text style={styles.title}>Autorizações</Text>
       <Text style={styles.subtitle}>Selecione o cadastro pendente e o aluno sem vinculo para autorizar.</Text>
@@ -332,7 +361,7 @@ export default function AutorizacoesScreen() {
             style={styles.input}
             value={newAluno.celular}
             onChangeText={(celular) => setNewAluno((previous) => ({ ...previous, celular: formatPhone(celular) }))}
-            placeholder="Celular"
+            placeholder="Celular com DDD (obrigatorio)"
             placeholderTextColor={colors.textMuted}
             keyboardType="phone-pad"
             maxLength={16}

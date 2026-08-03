@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -13,7 +13,7 @@ import {
 import { AlertError } from '@/components/ui/AlertError';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
-import { STUDENT_CATEGORY_FILTERS } from '@/constants/StudentCategories';
+import { getStudentCategoryByBirthDate, STUDENT_CATEGORY_FILTERS } from '@/constants/StudentCategories';
 import { type ThemeColors } from '@/constants/Theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
@@ -108,6 +108,14 @@ function categoryLabels(categorias?: string[] | null): string {
   return categorias.map((categoria) => categoryLabel(categoria)).join(', ');
 }
 
+function alunoMatchesAula(aluno: PresencaDiaAluno, aula: PresencaAulaDoDia): boolean {
+  const categorias = resolveCategorias(aula);
+  if (!categorias.length) return true;
+  const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
+  if (!category) return false;
+  return categorias.includes(category.id);
+}
+
 export default function PresencasScreen() {
   const topPadding = useScreenTopPadding();
   const { colors } = useAppTheme();
@@ -116,12 +124,14 @@ export default function PresencasScreen() {
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [dateInput, setDateInput] = useState(isoToBrDate(todayIso()));
   const [selectedDate, setSelectedDate] = useState(todayIso());
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [draftDate, setDraftDate] = useState(todayIso());
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [aulas, setAulas] = useState<PresencaAulaDoDia[]>([]);
   const [selectedAulaId, setSelectedAulaId] = useState<string | null>(null);
-  const [alunos, setAlunos] = useState<PresencaDiaAluno[]>([]);
+  const [allAlunos, setAllAlunos] = useState<PresencaDiaAluno[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingAlunoId, setSavingAlunoId] = useState<string | null>(null);
 
@@ -129,31 +139,47 @@ export default function PresencasScreen() {
     () => aulas.find((aula) => aula.aulaId === selectedAulaId) ?? null,
     [aulas, selectedAulaId]
   );
+
+  const alunos = useMemo(() => {
+    if (!selectedAula) return [];
+
+    return allAlunos
+      .filter((aluno) => alunoMatchesAula(aluno, selectedAula))
+      .map((aluno) => ({
+        ...aluno,
+        presente: aluno.presentePorAula?.[selectedAula.aulaId] ?? false,
+      }));
+  }, [allAlunos, selectedAula]);
+
   const presentes = useMemo(() => alunos.filter((aluno) => aluno.presente).length, [alunos]);
   const monthDays = useMemo(() => buildMonthDays(calendarMonth), [calendarMonth]);
   const today = todayIso();
 
   const load = useCallback(
-    async (dataPresenca = selectedDate, aulaId = selectedAulaId ?? undefined) => {
+    async (dataPresenca: string) => {
       try {
         setLoading(true);
-        const result = await parabaService.listarPresencas(dataPresenca, aulaId);
+        const result = await parabaService.listarPresencas(dataPresenca);
         setAulas(result.aulas);
-        const nextAulaId = result.aulaSelecionada?.aulaId ?? result.aulas[0]?.aulaId ?? null;
-        setSelectedAulaId(nextAulaId);
-        setAlunos(result.alunos);
+        setSelectedAulaId((current) => {
+          if (current && result.aulas.some((aula) => aula.aulaId === current)) {
+            return current;
+          }
+          return result.aulaSelecionada?.aulaId ?? result.aulas[0]?.aulaId ?? null;
+        });
+        setAllAlunos(result.alunos);
       } catch (error) {
         showError(apiErrorMessage(error, 'Nao foi possivel carregar a lista de presenca.'));
       } finally {
         setLoading(false);
       }
     },
-    [selectedAulaId, selectedDate, showError]
+    [showError]
   );
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      void load(selectedDateRef.current);
     }, [load])
   );
 
@@ -161,7 +187,7 @@ export default function PresencasScreen() {
     setDateInput(isoToBrDate(iso));
     setSelectedDate(iso);
     setSelectedAulaId(null);
-    void load(iso, undefined);
+    void load(iso);
   };
 
   const openDatePicker = () => {
@@ -178,7 +204,6 @@ export default function PresencasScreen() {
 
   const selectAula = (aulaId: string) => {
     setSelectedAulaId(aulaId);
-    void load(selectedDate, aulaId);
   };
 
   const togglePresenca = async (alunoId: string) => {
@@ -190,7 +215,19 @@ export default function PresencasScreen() {
     try {
       setSavingAlunoId(alunoId);
       const result = await parabaService.alternarPresenca(selectedDate, selectedAulaId, alunoId);
-      setAlunos((previous) => previous.map((aluno) => (aluno.id === alunoId ? result.aluno : aluno)));
+      setAllAlunos((previous) =>
+        previous.map((aluno) => {
+          if (aluno.id !== alunoId) return aluno;
+          return {
+            ...aluno,
+            ...result.aluno,
+            presentePorAula: {
+              ...(aluno.presentePorAula ?? {}),
+              [selectedAulaId]: result.aluno.presente,
+            },
+          };
+        })
+      );
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel atualizar a presenca.'));
     } finally {

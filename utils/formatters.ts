@@ -13,6 +13,19 @@ export function formatPhone(value: string): string {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
+export function normalizePhoneDigits(value?: string | null): string {
+  let digits = onlyDigits(String(value ?? ''));
+  if (digits.startsWith('55') && digits.length >= 12) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+export function isValidBrazilMobile(value?: string | null): boolean {
+  const digits = normalizePhoneDigits(value);
+  return digits.length === 10 || digits.length === 11;
+}
+
 export function normalizePhoneWithBrazilCode(value: string): string {
   const digits = onlyDigits(value);
   if (digits.startsWith('55')) return digits;

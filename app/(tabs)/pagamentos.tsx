@@ -87,9 +87,10 @@ export default function PagamentosScreen() {
   );
 
   const activeReference = viewMode === 'lastUnpaid' ? previousPaymentReference() : currentPaymentReference();
+  const activeAlunos = alunos.filter((aluno) => aluno.ativo !== false);
   const baseAlunos =
     viewMode === 'lastUnpaid'
-      ? alunos.filter((aluno) => {
+      ? activeAlunos.filter((aluno) => {
           const paymentDay = Number(aluno.dataPagamento);
           return (
             Number.isInteger(paymentDay) &&
@@ -99,7 +100,7 @@ export default function PagamentosScreen() {
             !isPaidForReference(aluno, activeReference)
           );
         })
-      : alunos;
+      : activeAlunos;
   const visibleAlunos = baseAlunos.filter((aluno) => {
     const normalizedSearch = search.trim().toLowerCase();
     const status = paymentStatus(aluno, activeReference);
