@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { NotificationPermissionModal } from '@/components/ui/NotificationPermissionModal';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
@@ -17,13 +16,6 @@ import {
   unpaidPreviousReferences,
   type PaymentStatus,
 } from '@/utils/paymentStatus';
-import {
-  getNotificationPermissionStatus,
-  hasSeenNotificationPrompt,
-  markNotificationPromptSeen,
-  requestNotificationPermissionAndSync,
-  syncPushTokenIfGranted,
-} from '@/utils/registerPushNotifications';
 
 function isProfessorUser(user?: SessionUser | null): boolean {
   return user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
@@ -76,8 +68,6 @@ export default function HomeScreen() {
   const [pendingAuthorizations, setPendingAuthorizations] = useState(0);
   const [monthlyBirthdays, setMonthlyBirthdays] = useState<MonthlyBirthday[]>([]);
   const [meuPagamento, setMeuPagamento] = useState<MeuAluno | null>(null);
-  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
-  const [requestingNotifications, setRequestingNotifications] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -88,20 +78,6 @@ export default function HomeScreen() {
 
         setUser(current);
         setLoadedUser(true);
-
-        try {
-          const status = await getNotificationPermissionStatus();
-          if (status === 'granted') {
-            await syncPushTokenIfGranted();
-          } else {
-            const alreadySeen = await hasSeenNotificationPrompt();
-            if (!alreadySeen && status !== 'denied') {
-              setShowNotificationPrompt(true);
-            }
-          }
-        } catch {
-          // Falha de push nao deve bloquear a home.
-        }
 
         if (isProfessorUser(current)) {
           try {
@@ -177,23 +153,6 @@ export default function HomeScreen() {
       };
     }, [])
   );
-
-  const allowNotifications = async () => {
-    try {
-      setRequestingNotifications(true);
-      setShowNotificationPrompt(false);
-      await requestNotificationPermissionAndSync();
-    } catch {
-      // Mantem o app utilizavel mesmo se a permissao falhar.
-    } finally {
-      setRequestingNotifications(false);
-    }
-  };
-
-  const skipNotifications = async () => {
-    await markNotificationPromptSeen();
-    setShowNotificationPrompt(false);
-  };
 
   const isProfessor = isProfessorUser(user);
   const paymentReference = currentPaymentReference();
@@ -335,17 +294,6 @@ export default function HomeScreen() {
           <AdBanner />
         </View>
       ) : null}
-
-      <NotificationPermissionModal
-        visible={showNotificationPrompt}
-        loading={requestingNotifications}
-        onAllow={() => {
-          void allowNotifications();
-        }}
-        onLater={() => {
-          void skipNotifications();
-        }}
-      />
     </View>
   );
 }

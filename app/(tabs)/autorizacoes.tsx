@@ -62,6 +62,7 @@ export default function AutorizacoesScreen() {
     nome: '',
     apelido: '',
     foto: '',
+    nomeResponsavel: '',
     emailResponsavel: '',
     celular: '',
     dataNascimento: '',
@@ -116,6 +117,7 @@ export default function AutorizacoesScreen() {
       nome: '',
       apelido: '',
       foto: '',
+      nomeResponsavel: '',
       emailResponsavel: '',
       celular: '',
       dataNascimento: '',
@@ -184,6 +186,7 @@ export default function AutorizacoesScreen() {
           nome: newAluno.nome.trim(),
           apelido: newAluno.apelido.trim() || undefined,
           foto: newAluno.foto || undefined,
+          nomeResponsavel: newAluno.nomeResponsavel.trim() || undefined,
           emailResponsavel: newAluno.emailResponsavel.trim() || undefined,
           celular: newAluno.celular.trim(),
           dataNascimento,
@@ -350,9 +353,16 @@ export default function AutorizacoesScreen() {
           </View>
           <TextInput
             style={styles.input}
+            value={newAluno.nomeResponsavel}
+            onChangeText={(nomeResponsavel) => setNewAluno((previous) => ({ ...previous, nomeResponsavel }))}
+            placeholder="Nome do responsavel (opcional)"
+            placeholderTextColor={colors.textMuted}
+          />
+          <TextInput
+            style={styles.input}
             value={newAluno.emailResponsavel}
             onChangeText={(emailResponsavel) => setNewAluno((previous) => ({ ...previous, emailResponsavel }))}
-            placeholder="E-mail do responsavel"
+            placeholder="E-mail do responsavel (opcional)"
             placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"

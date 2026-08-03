@@ -53,6 +53,7 @@ const emptyForm = {
   nome: '',
   apelido: '',
   foto: '',
+  nomeResponsavel: '',
   emailResponsavel: '',
   celular: '',
   dataNascimento: '',
@@ -96,6 +97,7 @@ export default function AlunoFormScreen() {
         nome: aluno.nome,
         apelido: aluno.apelido ?? '',
         foto: aluno.foto ?? '',
+        nomeResponsavel: aluno.nomeResponsavel ?? '',
         emailResponsavel: aluno.emailResponsavel ?? '',
         celular: aluno.celular ? formatPhone(aluno.celular) : '',
         dataNascimento: isoToBrDate(aluno.dataNascimento),
@@ -155,6 +157,7 @@ export default function AlunoFormScreen() {
         nome: form.nome.trim(),
         apelido: form.apelido.trim() || undefined,
         foto: form.foto || undefined,
+        nomeResponsavel: form.nomeResponsavel.trim() || undefined,
         emailResponsavel: form.emailResponsavel.trim() || undefined,
         celular: form.celular.trim(),
         dataNascimento,
@@ -221,6 +224,13 @@ export default function AlunoFormScreen() {
               ) : null}
             </View>
           </View>
+          <TextInput
+            style={styles.input}
+            value={form.nomeResponsavel}
+            onChangeText={(nomeResponsavel) => setForm((previous) => ({ ...previous, nomeResponsavel }))}
+            placeholder="Nome do responsavel (opcional)"
+            placeholderTextColor={colors.textMuted}
+          />
           <TextInput
             style={styles.input}
             value={form.emailResponsavel}

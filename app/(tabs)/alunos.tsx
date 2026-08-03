@@ -300,6 +300,9 @@ export default function AlunosScreen() {
                 <Text style={styles.studentMeta}>
                   Status: {isActive ? 'Ativo' : 'Inativo (sem acesso ao app)'}
                 </Text>
+                {aluno.nomeResponsavel ? (
+                  <Text style={styles.studentMeta}>Responsavel: {aluno.nomeResponsavel}</Text>
+                ) : null}
                 <Text style={styles.studentMeta}>Nascimento: {isoToBrDate(aluno.dataNascimento)}</Text>
                 <Text style={styles.studentMeta}>
                   Faixa: {aluno.faixaAtual ?? 'nao informada'} ({aluno.graus ?? 0} graus)

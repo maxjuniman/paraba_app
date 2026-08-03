@@ -2,12 +2,18 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 import { useInitializeAds } from '@/components/ui/AdBanner';
+import { NotificationPermissionModal } from '@/components/ui/NotificationPermissionModal';
 import { UpdateReadyModal } from '@/components/ui/UpdateReadyModal';
 import { AppThemeProvider, useAppTheme } from '@/hooks/useAppTheme';
+import {
+  getNotificationPermissionStatus,
+  requestNotificationPermissionAndSync,
+  syncPushTokenIfGranted,
+} from '@/utils/registerPushNotifications';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -15,7 +21,30 @@ function RootNavigation() {
   const { isDark, colors } = useAppTheme();
   const [updateReady, setUpdateReady] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const [requestingNotifications, setRequestingNotifications] = useState(false);
+  const skippedNotificationsRef = useRef(false);
   useInitializeAds();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const status = await getNotificationPermissionStatus();
+        if (status == null) return;
+
+        if (status === 'granted') {
+          await syncPushTokenIfGranted().catch(() => undefined);
+          return;
+        }
+
+        if (!skippedNotificationsRef.current) {
+          setShowNotificationPrompt(true);
+        }
+      } catch {
+        // Notificacoes nao devem bloquear o app.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!Updates.isEnabled) return;
@@ -40,6 +69,19 @@ function RootNavigation() {
     });
   }, []);
 
+  const allowNotifications = useCallback(async () => {
+    try {
+      setRequestingNotifications(true);
+      await requestNotificationPermissionAndSync();
+      await syncPushTokenIfGranted().catch(() => undefined);
+    } catch {
+      // Mantem o app utilizavel mesmo se a permissao falhar.
+    } finally {
+      setRequestingNotifications(false);
+      setShowNotificationPrompt(false);
+    }
+  }, []);
+
   return (
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -58,6 +100,17 @@ function RootNavigation() {
         <Stack.Screen name="aluno-form" />
         <Stack.Screen name="+not-found" />
       </Stack>
+      <NotificationPermissionModal
+        visible={showNotificationPrompt}
+        loading={requestingNotifications}
+        onAllow={() => {
+          void allowNotifications();
+        }}
+        onLater={() => {
+          skippedNotificationsRef.current = true;
+          setShowNotificationPrompt(false);
+        }}
+      />
       <UpdateReadyModal
         visible={updateReady}
         loading={reloading}
