@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { AdBanner } from '@/components/ui/AdBanner';
@@ -66,6 +66,7 @@ export default function HomeScreen() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loadedUser, setLoadedUser] = useState(false);
   const [pendingAuthorizations, setPendingAuthorizations] = useState(0);
+  const [pendingDepoimentos, setPendingDepoimentos] = useState(0);
   const [monthlyBirthdays, setMonthlyBirthdays] = useState<MonthlyBirthday[]>([]);
   const [meuPagamento, setMeuPagamento] = useState<MeuAluno | null>(null);
 
@@ -81,18 +82,21 @@ export default function HomeScreen() {
 
         if (isProfessorUser(current)) {
           try {
-            const [pendingUsers, alunos] = await Promise.all([
+            const [pendingUsers, alunos, depoimentos] = await Promise.all([
               parabaService.listarUsuariosPendentes(),
               parabaService.listarAlunos(),
+              parabaService.listarDepoimentos().catch(() => []),
             ]);
             if (active) {
               setPendingAuthorizations(pendingUsers.length);
+              setPendingDepoimentos(depoimentos.filter((item) => !item.ativo).length);
               setMonthlyBirthdays(getMonthlyBirthdays(alunos));
               setMeuPagamento(null);
             }
           } catch {
             if (active) {
               setPendingAuthorizations(0);
+              setPendingDepoimentos(0);
               setMonthlyBirthdays([]);
               setMeuPagamento(null);
             }
@@ -136,12 +140,14 @@ export default function HomeScreen() {
               : null;
 
             setPendingAuthorizations(0);
+            setPendingDepoimentos(0);
             setMonthlyBirthdays(getMonthlyBirthdays(equipe));
             setMeuPagamento(pagamento?.id ? (pagamento as MeuAluno) : null);
           }
         } catch {
           if (active) {
             setPendingAuthorizations(0);
+            setPendingDepoimentos(0);
             setMonthlyBirthdays([]);
             setMeuPagamento(null);
           }
@@ -233,6 +239,20 @@ export default function HomeScreen() {
               </View>
             ) : null}
           </View>
+        ) : null}
+
+        {isProfessor && pendingDepoimentos > 0 ? (
+          <TouchableOpacity activeOpacity={0.82} style={styles.summaryCard} onPress={() => router.push('/depoimentos' as Href)}>
+            <View style={styles.authorizationHeader}>
+              <Ionicons name="chatbubble-ellipses" size={24} color={colors.warning} />
+              <Text style={styles.cardTitle}>Depoimentos pendentes</Text>
+            </View>
+            <Text style={styles.cardText}>
+              {pendingDepoimentos === 1
+                ? 'Ha 1 depoimento aguardando aprovacao.'
+                : `Ha ${pendingDepoimentos} depoimentos aguardando aprovacao.`}
+            </Text>
+          </TouchableOpacity>
         ) : null}
 
         {isProfessor && pendingAuthorizations > 0 ? (

@@ -432,4 +432,21 @@ export const parabaService = {
     const { data } = await api.put<{ data?: Depoimento } | Depoimento>('/depoimentos/me', { texto });
     return unwrapData<Depoimento>(data);
   },
+
+  async listarDepoimentos(): Promise<Depoimento[]> {
+    const { data } = await api.get<{ data?: Depoimento[] } | Depoimento[]>('/depoimentos');
+    return Array.isArray(data) ? data : data.data ?? [];
+  },
+
+  async atualizarDepoimento(
+    id: string,
+    body: Partial<{ nome: string; texto: string; faixa: string | null; ativo: boolean; ordem: number }>
+  ): Promise<Depoimento> {
+    const { data } = await api.patch<{ data?: Depoimento } | Depoimento>(`/depoimentos/${id}`, body);
+    return unwrapData<Depoimento>(data);
+  },
+
+  async excluirDepoimento(id: string): Promise<void> {
+    await api.delete(`/depoimentos/${id}`);
+  },
 };

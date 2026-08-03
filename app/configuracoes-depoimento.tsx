@@ -23,6 +23,7 @@ export default function ConfiguracoesDepoimentoScreen() {
   const [nome, setNome] = useState('');
   const [faixa, setFaixa] = useState<string | null>(null);
   const [hasExisting, setHasExisting] = useState(false);
+  const [aprovado, setAprovado] = useState(false);
   const [success, setSuccess] = useState('');
 
   useFocusEffect(
@@ -38,6 +39,7 @@ export default function ConfiguracoesDepoimentoScreen() {
           ]);
           if (!active) return;
           setHasExisting(Boolean(mine));
+          setAprovado(Boolean(mine?.ativo));
           setTexto(mine?.texto ?? '');
           setNome(mine?.nome || aluno?.apelido?.trim() || aluno?.nome || 'Aluno');
           setFaixa(mine?.faixa ?? aluno?.faixaAtual ?? null);
@@ -70,10 +72,15 @@ export default function ConfiguracoesDepoimentoScreen() {
       setSuccess('');
       const saved = await parabaService.salvarMeuDepoimento(value);
       setHasExisting(true);
+      setAprovado(Boolean(saved.ativo));
       setTexto(saved.texto);
       setNome(saved.nome);
       setFaixa(saved.faixa ?? null);
-      setSuccess('Depoimento publicado no site da equipe.');
+      setSuccess(
+        saved.ativo
+          ? 'Depoimento publicado no site da equipe.'
+          : 'Depoimento enviado. Aguarde a aprovacao do professor para aparecer no site.'
+      );
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel salvar o depoimento.'));
     } finally {
@@ -96,12 +103,17 @@ export default function ConfiguracoesDepoimentoScreen() {
 
       <AppCard style={styles.card}>
         <Text style={styles.lead}>
-          Conte como e treinar na Equipe Paraba. Seu depoimento aparece no site da equipe.
+          Conte como e treinar na Equipe Paraba. O depoimento so aparece no site depois que o professor aprovar.
         </Text>
         <Text style={styles.meta}>
           {nome}
           {faixa ? ` · ${faixa}` : ''}
         </Text>
+        {hasExisting ? (
+          <Text style={[styles.status, aprovado ? styles.statusOk : styles.statusPending]}>
+            {aprovado ? 'Status: aprovado no site' : 'Status: aguardando aprovacao'}
+          </Text>
+        ) : null}
 
         <Text style={styles.label}>Seu depoimento</Text>
         <TextInput
@@ -120,7 +132,7 @@ export default function ConfiguracoesDepoimentoScreen() {
         {success ? <Text style={styles.success}>{success}</Text> : null}
 
         <AppButton onPress={() => void save()} loading={saving || loading}>
-          {hasExisting ? 'Atualizar depoimento' : 'Publicar depoimento'}
+          {hasExisting ? 'Atualizar depoimento' : 'Enviar para aprovacao'}
         </AppButton>
       </AppCard>
 
@@ -173,6 +185,16 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       fontSize: 15,
       fontWeight: '800',
       marginBottom: 4,
+    },
+    status: {
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    statusOk: {
+      color: colors.secondary,
+    },
+    statusPending: {
+      color: colors.warning ?? '#F79009',
     },
     label: {
       color: colors.text,
