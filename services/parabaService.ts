@@ -372,8 +372,11 @@ export const parabaService = {
     return unwrapData<MeuAluno>(data);
   },
 
-  async atualizarMinhaFotoEquipe(foto: string | null): Promise<EquipeAluno> {
-    const { data } = await api.patch<{ data?: EquipeAluno } | EquipeAluno>('/equipe/me/foto', { foto });
+  async atualizarMinhaFotoEquipe(foto: string | null, alunoId?: string): Promise<EquipeAluno> {
+    const { data } = await api.patch<{ data?: EquipeAluno } | EquipeAluno>('/equipe/me/foto', {
+      foto,
+      ...(alunoId ? { aluno_id: alunoId } : {}),
+    });
     return unwrapData<EquipeAluno>(data);
   },
 

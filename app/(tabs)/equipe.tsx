@@ -84,7 +84,7 @@ export default function EquipeScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
-  const [savingPhoto, setSavingPhoto] = useState(false);
+  const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null);
   const [alunos, setAlunos] = useState<EquipeAluno[]>([]);
   const [nameFilter, setNameFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<StudentCategoryId>('all');
@@ -134,18 +134,20 @@ export default function EquipeScreen() {
 
   const hasActiveFilters = Boolean(nameFilter.trim()) || categoryFilter !== 'all';
 
-  const updateMyPhoto = async () => {
+  const updateMyPhoto = async (alunoId: string) => {
     try {
       const foto = await pickStudentPhoto();
       if (!foto) return;
 
-      setSavingPhoto(true);
-      const updated = await parabaService.atualizarMinhaFotoEquipe(foto);
-      setAlunos((previous) => previous.map((aluno) => (aluno.id === updated.id ? { ...aluno, ...updated } : aluno)));
+      setSavingPhotoId(alunoId);
+      const updated = await parabaService.atualizarMinhaFotoEquipe(foto, alunoId);
+      setAlunos((previous) =>
+        previous.map((aluno) => (aluno.id === updated.id ? { ...aluno, ...updated, isMe: true } : aluno))
+      );
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel atualizar sua foto.'));
     } finally {
-      setSavingPhoto(false);
+      setSavingPhotoId(null);
     }
   };
 
@@ -210,6 +212,7 @@ export default function EquipeScreen() {
         const graus = normalizeGraus(aluno.graus);
         const beltColor = getBeltColor(aluno.faixaAtual, colors.textMuted);
         const isMe = Boolean(aluno.isMe);
+        const savingThisPhoto = savingPhotoId === aluno.id;
 
         return (
           <AppCard key={aluno.id} style={[styles.card, isMe && styles.myCard]}>
@@ -222,8 +225,12 @@ export default function EquipeScreen() {
               <Text style={styles.meta}>{formatBirthDateWithAge(aluno.dataNascimento)}</Text>
               <Text style={styles.meta}>Categoria: {category?.label ?? 'sem categoria'}</Text>
               {isMe ? (
-                <Pressable style={styles.editPhotoButton} onPress={() => void updateMyPhoto()} disabled={savingPhoto}>
-                  {savingPhoto ? (
+                <Pressable
+                  style={styles.editPhotoButton}
+                  onPress={() => void updateMyPhoto(aluno.id)}
+                  disabled={savingThisPhoto}
+                >
+                  {savingThisPhoto ? (
                     <ActivityIndicator color={colors.primary} size="small" />
                   ) : (
                     <>
@@ -236,8 +243,8 @@ export default function EquipeScreen() {
             </View>
             <Pressable
               style={styles.photoWrap}
-              onPress={isMe ? () => void updateMyPhoto() : undefined}
-              disabled={!isMe || savingPhoto}
+              onPress={isMe ? () => void updateMyPhoto(aluno.id) : undefined}
+              disabled={!isMe || savingThisPhoto}
             >
               <Image source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.photo} />
               <View style={styles.beltOverlay}>
