@@ -26,6 +26,7 @@ import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
 const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
 const GRAUS = [0, 1, 2, 3, 4];
+const MAX_ALUNOS = 2;
 const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
 
 function alunoLabel(aluno: Aluno): string {
@@ -56,7 +57,7 @@ export default function AutorizacoesScreen() {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [selectedAlunoId, setSelectedAlunoId] = useState('');
+  const [selectedAlunoIds, setSelectedAlunoIds] = useState<string[]>([]);
   const [showNewAluno, setShowNewAluno] = useState(false);
   const [newAluno, setNewAluno] = useState({
     nome: '',
@@ -107,11 +108,24 @@ export default function AutorizacoesScreen() {
 
   const alunosSemVinculo = alunos.filter((aluno) => !aluno.userId && aluno.ativo !== false);
   const selectedPendingUser = pendingUsers.find((user) => user.id === selectedUserId);
-  const selectedAluno = alunos.find((aluno) => aluno.id === selectedAlunoId);
+  const selectedAlunos = alunos.filter((aluno) => selectedAlunoIds.includes(aluno.id));
+
+  const toggleAluno = (alunoId: string) => {
+    setShowNewAluno(false);
+    setSelectedAlunoIds((current) => {
+      if (current.includes(alunoId)) {
+        return current.filter((id) => id !== alunoId);
+      }
+      if (current.length >= MAX_ALUNOS) {
+        return current;
+      }
+      return [...current, alunoId];
+    });
+  };
 
   const resetAuthorizationForm = () => {
     setSelectedUserId('');
-    setSelectedAlunoId('');
+    setSelectedAlunoIds([]);
     setShowNewAluno(false);
     setNewAluno({
       nome: '',
@@ -133,19 +147,27 @@ export default function AutorizacoesScreen() {
       showError('Selecione um usuario para autorizar.');
       return;
     }
-    if (!selectedAlunoId) {
-      showError('Selecione um aluno para vincular.');
+    if (selectedAlunoIds.length === 0) {
+      showError('Selecione 1 ou 2 alunos para vincular.');
       return;
     }
 
     try {
       setSaving(true);
-      const result = await parabaService.autorizarUsuario(selectedUserId, { alunoId: selectedAlunoId });
-      setPendingUsers((previous) => previous.filter((user) => user.id !== result.user.id));
-      setAlunos((previous) => previous.map((aluno) => (aluno.id === result.aluno.id ? result.aluno : aluno)));
+      let lastResult: { user: PendingUser; aluno: Aluno } | null = null;
+      for (const alunoId of selectedAlunoIds) {
+        lastResult = await parabaService.autorizarUsuario(selectedUserId, { alunoId });
+        setAlunos((previous) =>
+          previous.map((aluno) => (aluno.id === lastResult!.aluno.id ? lastResult!.aluno : aluno))
+        );
+      }
+      if (lastResult) {
+        setPendingUsers((previous) => previous.filter((user) => user.id !== lastResult!.user.id));
+      }
       resetAuthorizationForm();
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel autorizar o usuario.'));
+      await load();
     } finally {
       setSaving(false);
     }
@@ -233,7 +255,9 @@ export default function AutorizacoesScreen() {
       }
     >
       <Text style={styles.title}>Autorizações</Text>
-      <Text style={styles.subtitle}>Selecione o cadastro pendente e o aluno sem vinculo para autorizar.</Text>
+      <Text style={styles.subtitle}>
+        Selecione o cadastro pendente e clique em até 2 alunos sem vínculo para autorizar.
+      </Text>
 
       {loading ? <ActivityIndicator color={colors.primary} /> : null}
 
@@ -258,8 +282,10 @@ export default function AutorizacoesScreen() {
       </AppCard>
 
       <AppCard style={styles.card}>
-        <Text style={styles.cardTitle}>Aluno cadastrado</Text>
-        <Text style={styles.helpText}>Alunos cadastrados sem usuario vinculado.</Text>
+        <Text style={styles.cardTitle}>Alunos cadastrados</Text>
+        <Text style={styles.helpText}>
+          Clique em 1 ou 2 alunos sem usuario ({selectedAlunoIds.length}/{MAX_ALUNOS}).
+        </Text>
         {selectedPendingUser ? (
           <Text style={styles.contextText}>
             Cadastro escolhido: <Text style={styles.contextStrong}>{selectedPendingUser.nome}</Text>
@@ -271,15 +297,18 @@ export default function AutorizacoesScreen() {
           <Text style={styles.meta}>Nenhum aluno sem vinculo disponivel.</Text>
         ) : null}
         {alunosSemVinculo.map((aluno) => {
-          const selected = selectedAlunoId === aluno.id;
+          const selected = selectedAlunoIds.includes(aluno.id);
+          const blocked = !selected && selectedAlunoIds.length >= MAX_ALUNOS;
           return (
             <Pressable
               key={aluno.id}
-              style={[styles.alunoButton, selected && styles.optionSelected]}
-              onPress={() => {
-                setSelectedAlunoId(aluno.id);
-                setShowNewAluno(false);
-              }}
+              disabled={blocked}
+              style={[
+                styles.alunoButton,
+                selected && styles.optionSelected,
+                blocked && styles.alunoButtonBlocked,
+              ]}
+              onPress={() => toggleAluno(aluno.id)}
             >
               <Text style={[styles.alunoButtonText, selected && styles.optionTitleSelected]}>
                 {alunoLabel(aluno)}
@@ -287,9 +316,14 @@ export default function AutorizacoesScreen() {
             </Pressable>
           );
         })}
-        {selectedAluno ? (
+        {selectedAlunos.length > 0 ? (
           <View style={styles.confirmBox}>
-            <Text style={styles.confirmTitle}>Vincular esse cadastro ao aluno {alunoLabel(selectedAluno)}?</Text>
+            <Text style={styles.confirmTitle}>
+              Vincular esse cadastro a {selectedAlunos.length === 1 ? 'este aluno' : 'estes alunos'}?
+            </Text>
+            <Text style={styles.confirmMeta}>
+              {selectedAlunos.map((aluno) => alunoLabel(aluno)).join(' · ')}
+            </Text>
             <Text style={styles.confirmMeta}>
               {selectedPendingUser
                 ? `Cadastro: ${selectedPendingUser.nome}`
@@ -298,12 +332,12 @@ export default function AutorizacoesScreen() {
             <View style={styles.confirmActions}>
               <Pressable
                 style={[styles.confirmButton, styles.confirmButtonNo]}
-                onPress={() => setSelectedAlunoId('')}
+                onPress={() => setSelectedAlunoIds([])}
               >
                 <Text style={[styles.confirmButtonText, styles.confirmButtonTextNo]}>Não</Text>
               </Pressable>
               <Pressable
-                disabled={saving}
+                disabled={saving || !selectedUserId}
                 style={[styles.confirmButton, styles.confirmButtonYes, saving && styles.confirmButtonDisabled]}
                 onPress={() => void authorizeWithExistingAluno()}
               >
@@ -525,6 +559,9 @@ function createStyles(colors: ThemeColors) {
       justifyContent: 'center',
       paddingHorizontal: 14,
       paddingVertical: 12,
+    },
+    alunoButtonBlocked: {
+      opacity: 0.45,
     },
     alunoButtonText: {
       color: colors.text,

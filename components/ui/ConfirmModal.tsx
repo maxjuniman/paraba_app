@@ -1,4 +1,4 @@
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { type ThemeColors } from '@/constants/Theme';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { AppButton } from './AppButton';
@@ -30,9 +30,14 @@ export function ConfirmModal({
   const styles = createStyles(colors);
 
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
-      <Pressable style={styles.overlay} onPress={loading ? undefined : onCancel}>
-        <Pressable style={styles.box}>
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={loading ? undefined : onCancel}>
+      <View style={styles.overlay}>
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          disabled={loading}
+          onPress={loading ? undefined : onCancel}
+        />
+        <View style={styles.box}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           {danger ? (
@@ -55,8 +60,8 @@ export function ConfirmModal({
           <AppButton variant="ghost" onPress={onCancel} disabled={loading}>
             {cancelLabel}
           </AppButton>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -77,6 +82,7 @@ function createStyles(colors: ThemeColors) {
       borderRadius: 18,
       padding: 22,
       gap: 12,
+      zIndex: 1,
     },
     title: {
       color: colors.text,

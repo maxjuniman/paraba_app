@@ -101,6 +101,13 @@ export default function ConfiguracoesScreen() {
           <>
             <View style={styles.divider} />
             <SettingRow
+              icon="people-outline"
+              label="Alunos vinculados"
+              subtitle="Ver e escolher o aluno primario"
+              onPress={() => router.push('/configuracoes-vinculos')}
+            />
+            <View style={styles.divider} />
+            <SettingRow
               icon="chatbubble-ellipses-outline"
               label="Deixar depoimento"
               subtitle="Publicar no site da equipe"
@@ -110,6 +117,13 @@ export default function ConfiguracoesScreen() {
         ) : null}
         {isProfessor ? (
           <>
+            <View style={styles.divider} />
+            <SettingRow
+              icon="people-outline"
+              label="Alunos vinculados"
+              subtitle="Ate 2 alunos por usuario"
+              onPress={() => router.push('/configuracoes-vinculos')}
+            />
             <View style={styles.divider} />
             <SettingRow
               icon="school-outline"

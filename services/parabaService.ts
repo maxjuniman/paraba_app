@@ -121,6 +121,29 @@ export type PendingUser = SessionUser & {
   ativo: boolean;
 };
 
+export type VinculoAlunoResumo = {
+  id: string;
+  nome: string;
+  apelido?: string | null;
+  celular?: string;
+  ativo?: boolean;
+  faixaAtual?: string | null;
+  primario?: boolean;
+};
+
+export type UsuarioAtivoComVinculos = PendingUser & {
+  alunos: VinculoAlunoResumo[];
+  alunosCount: number;
+  maxAlunos: number;
+};
+
+export type VinculosUsuario = {
+  user: PendingUser;
+  alunos: VinculoAlunoResumo[];
+  alunoPrimarioId: string | null;
+  maxAlunos: number;
+};
+
 export type AutorizarUserBody =
   | {
       alunoId: string;
@@ -274,6 +297,41 @@ export const parabaService = {
     return Array.isArray(data) ? data : data.data ?? [];
   },
 
+  async listarUsuariosAtivos(): Promise<UsuarioAtivoComVinculos[]> {
+    const { data } = await api.get<{ data?: UsuarioAtivoComVinculos[] } | UsuarioAtivoComVinculos[]>(
+      '/users/ativos'
+    );
+    return Array.isArray(data) ? data : data.data ?? [];
+  },
+
+  async listarAlunosDoUsuario(userId: string): Promise<VinculosUsuario> {
+    const { data } = await api.get<{ data?: VinculosUsuario } | VinculosUsuario>(
+      `/users/${userId}/alunos`
+    );
+    return unwrapData<VinculosUsuario>(data);
+  },
+
+  async definirAlunoPrimario(userId: string, alunoId: string): Promise<VinculosUsuario> {
+    const { data } = await api.patch<{ data?: VinculosUsuario } | VinculosUsuario>(
+      `/users/${userId}/aluno-primario`,
+      { aluno_id: alunoId }
+    );
+    return unwrapData<VinculosUsuario>(data);
+  },
+
+  async listarMeusAlunosVinculados(): Promise<VinculosUsuario> {
+    const { data } = await api.get<{ data?: VinculosUsuario } | VinculosUsuario>('/equipe/meus-alunos');
+    return unwrapData<VinculosUsuario>(data);
+  },
+
+  async definirMeuAlunoPrimario(alunoId: string): Promise<VinculosUsuario> {
+    const { data } = await api.patch<{ data?: VinculosUsuario } | VinculosUsuario>(
+      '/equipe/me/aluno-primario',
+      { aluno_id: alunoId }
+    );
+    return unwrapData<VinculosUsuario>(data);
+  },
+
   async autorizarUsuario(userId: string, body: AutorizarUserBody): Promise<{ user: PendingUser; aluno: Aluno }> {
     const payload =
       'alunoId' in body
@@ -381,6 +439,24 @@ export const parabaService = {
   async desvincularAlunoUser(alunoId: string): Promise<Aluno> {
     const { data } = await api.post<{ data?: Aluno } | Aluno>(`/alunos/${alunoId}/desvincular-user`);
     return unwrapData<Aluno>(data);
+  },
+
+  async excluirAluno(alunoId: string): Promise<{ id: string; nome: string }> {
+    const { data } = await api.delete<{ data?: { id: string; nome: string } } | { id: string; nome: string }>(
+      `/alunos/${alunoId}`
+    );
+    return unwrapData<{ id: string; nome: string }>(data);
+  },
+
+  async alterarSenhaAluno(
+    alunoId: string,
+    body: { senha: string; confirmacao_senha: string }
+  ): Promise<{ alunoId: string; userId: string; email: string }> {
+    const { data } = await api.patch<
+      | { data?: { alunoId: string; userId: string; email: string }; message?: string }
+      | { alunoId: string; userId: string; email: string }
+    >(`/alunos/${alunoId}/senha`, body);
+    return unwrapData<{ alunoId: string; userId: string; email: string }>(data);
   },
 
   async salvarPushToken(token: string): Promise<void> {

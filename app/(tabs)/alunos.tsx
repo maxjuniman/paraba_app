@@ -14,6 +14,7 @@ import {
 import { AlertError } from '@/components/ui/AlertError';
 import { AppCard } from '@/components/ui/AppCard';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { PasswordModal } from '@/components/ui/PasswordModal';
 import {
   getStudentCategoryByBirthDate,
   STUDENT_CATEGORY_FILTERS,
@@ -42,7 +43,8 @@ function isoToBrDate(value?: string | null): string {
 
 type ConfirmAction =
   | { type: 'toggleAtivo'; aluno: Aluno; nextAtivo: boolean }
-  | { type: 'unlink'; aluno: Aluno };
+  | { type: 'unlink'; aluno: Aluno }
+  | { type: 'delete'; aluno: Aluno };
 
 export default function AlunosScreen() {
   const router = useRouter();
@@ -59,6 +61,11 @@ export default function AlunosScreen() {
   const [expandedAlunoId, setExpandedAlunoId] = useState<string | null>(null);
   const [unlinkingAlunoId, setUnlinkingAlunoId] = useState<string | null>(null);
   const [togglingAtivoAlunoId, setTogglingAtivoAlunoId] = useState<string | null>(null);
+  const [deletingAlunoId, setDeletingAlunoId] = useState<string | null>(null);
+  const [passwordAluno, setPasswordAluno] = useState<Aluno | null>(null);
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmacaoSenha, setConfirmacaoSenha] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
   const load = useCallback(async () => {
@@ -115,6 +122,62 @@ export default function AlunosScreen() {
     [showError]
   );
 
+  const deleteAluno = useCallback(
+    async (alunoId: string) => {
+      try {
+        setDeletingAlunoId(alunoId);
+        await parabaService.excluirAluno(alunoId);
+        setAlunos((previous) => previous.filter((item) => item.id !== alunoId));
+        setExpandedAlunoId((current) => (current === alunoId ? null : current));
+        setConfirmAction(null);
+      } catch (error) {
+        showError(apiErrorMessage(error, 'Nao foi possivel excluir o aluno.'));
+      } finally {
+        setDeletingAlunoId(null);
+      }
+    },
+    [showError]
+  );
+
+  const openPasswordModal = (aluno: Aluno) => {
+    setNovaSenha('');
+    setConfirmacaoSenha('');
+    setPasswordAluno(aluno);
+  };
+
+  const closePasswordModal = () => {
+    if (savingPassword) return;
+    setPasswordAluno(null);
+    setNovaSenha('');
+    setConfirmacaoSenha('');
+  };
+
+  const savePassword = async () => {
+    if (!passwordAluno) return;
+    if (novaSenha.length < 6) {
+      showError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (novaSenha !== confirmacaoSenha) {
+      showError('A confirmacao da senha nao confere.');
+      return;
+    }
+    try {
+      setSavingPassword(true);
+      await parabaService.alterarSenhaAluno(passwordAluno.id, {
+        senha: novaSenha,
+        confirmacao_senha: confirmacaoSenha,
+      });
+      setPasswordAluno(null);
+      setNovaSenha('');
+      setConfirmacaoSenha('');
+    } catch (error) {
+      showError(apiErrorMessage(error, 'Nao foi possivel alterar a senha.'));
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   const confirmModal = useMemo(() => {
     if (!confirmAction) return null;
 
@@ -135,6 +198,19 @@ export default function AlunosScreen() {
       };
     }
 
+    if (confirmAction.type === 'delete') {
+      return {
+        title: 'Excluir aluno',
+        message: `Excluir ${confirmAction.aluno.nome} permanentemente? Presencas desse aluno serao removidas. Esta acao nao pode ser desfeita.`,
+        confirmLabel: 'Excluir',
+        danger: true,
+        loading: deletingAlunoId === confirmAction.aluno.id,
+        onConfirm: () => {
+          void deleteAluno(confirmAction.aluno.id);
+        },
+      };
+    }
+
     return {
       title: 'Desvincular usuario',
       message: `Remover o vinculo de ${confirmAction.aluno.nome}? O usuario volta a ficar pendente de autorizacao.`,
@@ -145,7 +221,15 @@ export default function AlunosScreen() {
         void unlinkUser(confirmAction.aluno.id);
       },
     };
-  }, [confirmAction, togglingAtivoAlunoId, unlinkingAlunoId, toggleAtivo, unlinkUser]);
+  }, [
+    confirmAction,
+    togglingAtivoAlunoId,
+    unlinkingAlunoId,
+    deletingAlunoId,
+    toggleAtivo,
+    unlinkUser,
+    deleteAluno,
+  ]);
 
   const filteredAlunos = useMemo(() => {
     const normalizedName = nameFilter.trim().toLowerCase();
@@ -326,6 +410,12 @@ export default function AlunosScreen() {
                     <Ionicons name="create-outline" size={16} color={onPrimary} />
                     <Text style={styles.editButtonText}>Editar</Text>
                   </Pressable>
+                  {hasUser ? (
+                    <Pressable style={styles.unlinkButton} onPress={() => openPasswordModal(aluno)}>
+                      <Ionicons name="key-outline" size={16} color={colors.text} />
+                      <Text style={styles.unlinkButtonText}>Senha</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     style={[
                       isActive ? styles.deactivateButton : styles.reactivateButton,
@@ -371,6 +461,25 @@ export default function AlunosScreen() {
                       )}
                     </Pressable>
                   ) : null}
+                  {!isActive ? (
+                    <Pressable
+                      style={[
+                        styles.deactivateButton,
+                        deletingAlunoId === aluno.id && styles.unlinkButtonDisabled,
+                      ]}
+                      disabled={deletingAlunoId === aluno.id}
+                      onPress={() => setConfirmAction({ type: 'delete', aluno })}
+                    >
+                      {deletingAlunoId === aluno.id ? (
+                        <ActivityIndicator color={colors.danger} size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                          <Text style={styles.deactivateButtonText}>Excluir</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
             ) : null}
@@ -392,6 +501,23 @@ export default function AlunosScreen() {
         onCancel={() => {
           if (!confirmModal?.loading) setConfirmAction(null);
         }}
+      />
+
+      <PasswordModal
+        visible={Boolean(passwordAluno)}
+        title="Trocar senha"
+        subtitle={
+          passwordAluno
+            ? `Nova senha para ${passwordAluno.nome}${passwordAluno.user?.email ? ` (${passwordAluno.user.email})` : ''}.`
+            : undefined
+        }
+        password={novaSenha}
+        confirmPassword={confirmacaoSenha}
+        loading={savingPassword}
+        onChangePassword={setNovaSenha}
+        onChangeConfirmPassword={setConfirmacaoSenha}
+        onConfirm={() => void savePassword()}
+        onCancel={closePasswordModal}
       />
 
       <AlertError
