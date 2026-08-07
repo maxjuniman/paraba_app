@@ -76,10 +76,12 @@ export default function AlunoFormScreen() {
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [userEmail, setUserEmail] = useState('');
 
   const loadAluno = useCallback(async () => {
     if (!alunoId) {
       setForm(emptyForm);
+      setUserEmail('');
       setLoading(false);
       return;
     }
@@ -93,12 +95,14 @@ export default function AlunoFormScreen() {
         return;
       }
 
+      const raw = aluno as typeof aluno & { email_responsavel?: string | null };
+      setUserEmail(aluno.user?.email ?? '');
       setForm({
         nome: aluno.nome,
         apelido: aluno.apelido ?? '',
         foto: aluno.foto ?? '',
         nomeResponsavel: aluno.nomeResponsavel ?? '',
-        emailResponsavel: aluno.emailResponsavel ?? '',
+        emailResponsavel: aluno.emailResponsavel ?? raw.email_responsavel ?? '',
         celular: aluno.celular ? formatPhone(aluno.celular) : '',
         dataNascimento: isoToBrDate(aluno.dataNascimento),
         dataPagamento: aluno.dataPagamento ?? '',
@@ -231,11 +235,22 @@ export default function AlunoFormScreen() {
             placeholder="Nome do responsavel (opcional)"
             placeholderTextColor={colors.textMuted}
           />
+          {userEmail ? (
+            <>
+              <Text style={styles.fieldLabel}>E-mail do usuario (app)</Text>
+              <TextInput
+                style={[styles.input, styles.inputDisabled]}
+                value={userEmail}
+                editable={false}
+                placeholderTextColor={colors.textMuted}
+              />
+            </>
+          ) : null}
           <TextInput
             style={styles.input}
             value={form.emailResponsavel}
             onChangeText={(emailResponsavel) => setForm((previous) => ({ ...previous, emailResponsavel }))}
-            placeholder="E-mail (opcional)"
+            placeholder="E-mail do responsavel (opcional)"
             placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -361,6 +376,9 @@ function createStyles(colors: ThemeColors) {
       fontSize: 15,
       minHeight: 50,
       paddingHorizontal: 14,
+    },
+    inputDisabled: {
+      opacity: 0.75,
     },
     photoRow: {
       alignItems: 'center',

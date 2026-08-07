@@ -75,6 +75,7 @@ export type Depoimento = {
   nome: string;
   texto: string;
   faixa?: string | null;
+  foto?: string | null;
   userId?: string | null;
   ativo: boolean;
   ordem: number;
@@ -168,8 +169,10 @@ export type PaymentStatusBody = {
 export type VideoUpdateBody = {
   titulo: string;
   descricao?: string;
-  url: string;
-  alunoId?: string;
+  /** Arquivo local (uri do DocumentPicker / ImagePicker). */
+  uri: string;
+  name: string;
+  mimeType?: string | null;
 };
 
 export type VideoUpdate = {
@@ -285,7 +288,9 @@ export const parabaService = {
   async atualizarMeuPerfil(body: {
     nome: string;
     celular?: string;
-    senhaAtual?: string;
+    foto?: string | null;
+    faixaAtual?: string | null;
+    graus?: number;
     novaSenha?: string;
   }): Promise<SessionUser> {
     const { data } = await api.patch<{ data?: SessionUser } | SessionUser>('/auth/me', body);
@@ -493,13 +498,23 @@ export const parabaService = {
   },
 
   async publicarVideo(body: VideoUpdateBody): Promise<VideoUpdate> {
-    const { data } = await api.post<{ data?: VideoUpdate } | VideoUpdate>('/videos', {
-      titulo: body.titulo,
-      descricao: body.descricao,
-      url: body.url,
-      aluno_id: body.alunoId,
+    const form = new FormData();
+    form.append('titulo', body.titulo);
+    if (body.descricao) form.append('descricao', body.descricao);
+    form.append('video', {
+      uri: body.uri,
+      name: body.name || 'video.mp4',
+      type: body.mimeType || 'video/mp4',
+    } as unknown as Blob);
+
+    const { data } = await api.post<{ data?: VideoUpdate } | VideoUpdate>('/videos', form, {
+      timeout: 10 * 60 * 1000,
     });
     return unwrapData<VideoUpdate>(data);
+  },
+
+  async excluirVideo(id: string): Promise<void> {
+    await api.delete(`/videos/${id}`);
   },
 
   async obterMeuDepoimento(): Promise<Depoimento | null> {
@@ -519,7 +534,14 @@ export const parabaService = {
 
   async atualizarDepoimento(
     id: string,
-    body: Partial<{ nome: string; texto: string; faixa: string | null; ativo: boolean; ordem: number }>
+    body: Partial<{
+      nome: string;
+      texto: string;
+      faixa: string | null;
+      foto: string | null;
+      ativo: boolean;
+      ordem: number;
+    }>
   ): Promise<Depoimento> {
     const { data } = await api.patch<{ data?: Depoimento } | Depoimento>(`/depoimentos/${id}`, body);
     return unwrapData<Depoimento>(data);

@@ -4,11 +4,13 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { AlertError } from '@/components/ui/AlertError';
@@ -30,6 +32,11 @@ export default function DepoimentosAdminScreen() {
   const [lista, setLista] = useState<Depoimento[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<Depoimento | null>(null);
+  const [editing, setEditing] = useState<Depoimento | null>(null);
+  const [editNome, setEditNome] = useState('');
+  const [editTexto, setEditTexto] = useState('');
+  const [editFaixa, setEditFaixa] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +67,54 @@ export default function DepoimentosAdminScreen() {
     }
   };
 
+  const openEdit = (item: Depoimento) => {
+    setEditing(item);
+    setEditNome(item.nome);
+    setEditTexto(item.texto);
+    setEditFaixa(item.faixa ?? '');
+  };
+
+  const closeEdit = () => {
+    if (savingEdit) return;
+    setEditing(null);
+    setEditNome('');
+    setEditTexto('');
+    setEditFaixa('');
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    Keyboard.dismiss();
+    const nome = editNome.trim();
+    const texto = editTexto.trim();
+    if (!nome) {
+      showError('Informe o nome.');
+      return;
+    }
+    if (texto.length < 10) {
+      showError('O depoimento deve ter pelo menos 10 caracteres.');
+      return;
+    }
+    if (texto.length > 800) {
+      showError('O depoimento deve ter no maximo 800 caracteres.');
+      return;
+    }
+    try {
+      setSavingEdit(true);
+      const updated = await parabaService.atualizarDepoimento(editing.id, {
+        nome,
+        texto,
+        faixa: editFaixa.trim() || null,
+      });
+      setLista((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      setEditing(null);
+    } catch (error) {
+      showError(apiErrorMessage(error, 'Nao foi possivel salvar o depoimento.'));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!toDelete) return;
     try {
@@ -81,6 +136,7 @@ export default function DepoimentosAdminScreen() {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
           <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={10}>
@@ -106,11 +162,19 @@ export default function DepoimentosAdminScreen() {
           lista.map((item) => (
             <AppCard key={item.id} style={styles.card}>
               <Text style={styles.nome}>{item.nome}</Text>
+              {item.faixa ? <Text style={styles.faixa}>{item.faixa}</Text> : null}
               <Text style={[styles.status, item.ativo ? styles.statusOk : styles.statusPending]}>
                 {item.ativo ? 'Aprovado · visivel no site' : 'Pendente de aprovacao'}
               </Text>
               <Text style={styles.texto}>{item.texto}</Text>
               <View style={styles.actions}>
+                <AppButton
+                  onPress={() => openEdit(item)}
+                  variant="secondary"
+                  disabled={busyId === item.id}
+                >
+                  Editar
+                </AppButton>
                 <AppButton
                   onPress={() => void toggleAtivo(item)}
                   loading={busyId === item.id}
@@ -130,6 +194,49 @@ export default function DepoimentosAdminScreen() {
           ))
         )}
       </ScrollView>
+
+      <Modal transparent visible={Boolean(editing)} animationType="fade" onRequestClose={closeEdit}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} disabled={savingEdit} onPress={closeEdit} />
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Editar depoimento</Text>
+            <TextInput
+              style={styles.input}
+              value={editNome}
+              onChangeText={setEditNome}
+              placeholder="Nome"
+              placeholderTextColor={colors.textMuted}
+              editable={!savingEdit}
+            />
+            <TextInput
+              style={styles.input}
+              value={editFaixa}
+              onChangeText={setEditFaixa}
+              placeholder="Faixa (opcional)"
+              placeholderTextColor={colors.textMuted}
+              editable={!savingEdit}
+            />
+            <TextInput
+              style={[styles.input, styles.textarea]}
+              value={editTexto}
+              onChangeText={setEditTexto}
+              placeholder="Texto do depoimento"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              textAlignVertical="top"
+              maxLength={800}
+              editable={!savingEdit}
+            />
+            <Text style={styles.counter}>{editTexto.trim().length}/800</Text>
+            <AppButton onPress={() => void saveEdit()} loading={savingEdit}>
+              Salvar
+            </AppButton>
+            <AppButton variant="ghost" onPress={closeEdit} disabled={savingEdit}>
+              Cancelar
+            </AppButton>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={Boolean(toDelete)} animationType="fade" onRequestClose={() => setToDelete(null)}>
         <Pressable style={styles.overlay} onPress={() => (busyId ? undefined : setToDelete(null))}>
@@ -222,6 +329,11 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       fontSize: 16,
       fontWeight: '800',
     },
+    faixa: {
+      color: colors.textMuted,
+      fontSize: 13,
+      fontWeight: '600',
+    },
     status: {
       fontSize: 13,
       fontWeight: '800',
@@ -281,6 +393,7 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       maxWidth: 400,
       padding: 22,
       width: '100%',
+      zIndex: 1,
     },
     logo: {
       alignSelf: 'center',
@@ -312,6 +425,26 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       gap: 8,
       justifyContent: 'center',
       marginTop: 6,
+    },
+    input: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 15,
+      minHeight: 48,
+      paddingHorizontal: 14,
+    },
+    textarea: {
+      minHeight: 140,
+      paddingTop: 12,
+      paddingBottom: 12,
+    },
+    counter: {
+      color: colors.textMuted,
+      fontSize: 12,
+      textAlign: 'right',
     },
   });
 }

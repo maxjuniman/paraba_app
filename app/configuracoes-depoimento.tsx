@@ -10,6 +10,7 @@ import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
 import { parabaService } from '@/services/parabaService';
+import { getCurrentUser } from '@/utils/session';
 
 export default function ConfiguracoesDepoimentoScreen() {
   const topPadding = useScreenTopPadding();
@@ -24,6 +25,7 @@ export default function ConfiguracoesDepoimentoScreen() {
   const [faixa, setFaixa] = useState<string | null>(null);
   const [hasExisting, setHasExisting] = useState(false);
   const [aprovado, setAprovado] = useState(false);
+  const [isProfessor, setIsProfessor] = useState(false);
   const [success, setSuccess] = useState('');
 
   useFocusEffect(
@@ -33,15 +35,19 @@ export default function ConfiguracoesDepoimentoScreen() {
         try {
           setLoading(true);
           setSuccess('');
+          const user = await getCurrentUser();
+          const professor =
+            user?.tipo === 1 || user?.tipo === 'admin' || user?.tipo === 'professor';
           const [mine, aluno] = await Promise.all([
             parabaService.obterMeuDepoimento(),
-            parabaService.obterMeuAluno().catch(() => null),
+            professor ? Promise.resolve(null) : parabaService.obterMeuAluno().catch(() => null),
           ]);
           if (!active) return;
+          setIsProfessor(professor);
           setHasExisting(Boolean(mine));
           setAprovado(Boolean(mine?.ativo));
           setTexto(mine?.texto ?? '');
-          setNome(mine?.nome || aluno?.apelido?.trim() || aluno?.nome || 'Aluno');
+          setNome(mine?.nome || aluno?.apelido?.trim() || aluno?.nome || user?.nome || 'Usuario');
           setFaixa(mine?.faixa ?? aluno?.faixaAtual ?? null);
         } catch (error) {
           if (active) showError(apiErrorMessage(error, 'Nao foi possivel carregar o depoimento.'));
@@ -103,7 +109,9 @@ export default function ConfiguracoesDepoimentoScreen() {
 
       <AppCard style={styles.card}>
         <Text style={styles.lead}>
-          Conte como e treinar na Equipe Paraba. O depoimento so aparece no site depois que o professor aprovar.
+          {isProfessor
+            ? 'Seu depoimento e publicado direto no site. A foto do carrossel fica em Editar cadastro.'
+            : 'Conte como e treinar na Equipe Paraba. O depoimento so aparece no site depois que o professor aprovar.'}
         </Text>
         <Text style={styles.meta}>
           {nome}
@@ -132,7 +140,11 @@ export default function ConfiguracoesDepoimentoScreen() {
         {success ? <Text style={styles.success}>{success}</Text> : null}
 
         <AppButton onPress={() => void save()} loading={saving || loading}>
-          {hasExisting ? 'Atualizar depoimento' : 'Enviar para aprovacao'}
+          {hasExisting
+            ? 'Atualizar depoimento'
+            : isProfessor
+              ? 'Publicar depoimento'
+              : 'Enviar para aprovacao'}
         </AppButton>
       </AppCard>
 

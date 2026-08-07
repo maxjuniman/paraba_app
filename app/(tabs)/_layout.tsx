@@ -69,7 +69,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="presencas" options={{ title: 'Presenças', href: isProfessor ? undefined : null }} />
       <Tabs.Screen name="autorizacoes" options={{ href: null }} />
       <Tabs.Screen name="pagamentos" options={{ title: 'Pagamentos', href: isProfessor ? undefined : null }} />
-      <Tabs.Screen name="videos" options={{ href: null }} />
+      <Tabs.Screen name="videos" options={{ title: 'Vídeos', href: isProfessor || isAluno ? undefined : null }} />
     </Tabs>
   );
 }

@@ -22,6 +22,14 @@ api.interceptors.request.use(async (config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    if (typeof config.headers.set === 'function') {
+      config.headers.set('Content-Type', 'multipart/form-data');
+    } else {
+      config.headers['Content-Type'] = 'multipart/form-data';
+    }
+  }
+
   return config;
 });
 

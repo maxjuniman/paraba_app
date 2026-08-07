@@ -94,7 +94,9 @@ export default function ConfiguracoesScreen() {
         <SettingRow
           icon="person-outline"
           label="Editar cadastro"
-          subtitle="Nome, celular e senha"
+          subtitle={
+            isProfessor ? 'Nome, celular, foto, faixa e senha' : 'Nome, celular, foto e senha'
+          }
           onPress={() => router.push('/configuracoes-editar')}
         />
         {isAluno ? (
@@ -117,6 +119,20 @@ export default function ConfiguracoesScreen() {
         ) : null}
         {isProfessor ? (
           <>
+            <View style={styles.divider} />
+            <SettingRow
+              icon="chatbubble-ellipses-outline"
+              label="Meu depoimento"
+              subtitle="Texto no carrossel do site"
+              onPress={() => router.push('/configuracoes-depoimento')}
+            />
+            <View style={styles.divider} />
+            <SettingRow
+              icon="chatbubbles-outline"
+              label="Depoimentos"
+              subtitle="Aprovar, editar e gerenciar"
+              onPress={() => router.push('/depoimentos')}
+            />
             <View style={styles.divider} />
             <SettingRow
               icon="people-outline"
