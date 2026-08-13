@@ -3,7 +3,7 @@
     "name": "Equipe Paraba",
     "slug": "equipe-paraba",
     "owner": "maxjuniman",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "orientation": "portrait",
     "icon": "./assets/img/app-icon.png",
     "scheme": "equipe-paraba",
@@ -109,8 +109,7 @@
             }
           }
         }
-      ],
-      "expo-video"
+      ]
     ],
     "extra": {
       "eas": {

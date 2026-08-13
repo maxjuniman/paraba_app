@@ -78,6 +78,21 @@ function normalizeGraus(graus?: number | null): number {
   return Math.max(0, Math.min(4, graus ?? 0));
 }
 
+/** Faixa so aparece para quem pratica jiu-jitsu. */
+function praticaJiuJitsu(aluno: EquipeAluno): boolean {
+  if (aluno.showFaixa === true) return true;
+  if (aluno.showFaixa === false) return false;
+  const tipos = aluno.tiposAula ?? [];
+  return tipos.some((tipo) => {
+    const nome = tipo.nome
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+    return /jiu[\s-]?jitsu|jiujitsu|\bbjj\b/.test(nome);
+  });
+}
+
 export default function EquipeScreen() {
   const topPadding = useScreenTopPadding();
   const { colors } = useAppTheme();
@@ -247,15 +262,17 @@ export default function EquipeScreen() {
               disabled={!isMe || savingThisPhoto}
             >
               <Image source={aluno.foto ? { uri: aluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.photo} />
-              <View style={styles.beltOverlay}>
-                <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
-                <View style={styles.beltBlackPatch}>
-                  {Array.from({ length: graus }).map((_, index) => (
-                    <View key={index} style={styles.degreeStripe} />
-                  ))}
+              {praticaJiuJitsu(aluno) ? (
+                <View style={styles.beltOverlay}>
+                  <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
+                  <View style={styles.beltBlackPatch}>
+                    {Array.from({ length: graus }).map((_, index) => (
+                      <View key={index} style={styles.degreeStripe} />
+                    ))}
+                  </View>
+                  <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
                 </View>
-                <View style={[styles.beltEnd, { backgroundColor: beltColor }]} />
-              </View>
+              ) : null}
               {isMe ? (
                 <View style={styles.photoEditBadge}>
                   <Ionicons name="camera" size={14} color="#FFFFFF" />

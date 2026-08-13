@@ -60,8 +60,12 @@ export type Aluno = {
   createdAt?: string;
 };
 
-export type EquipeAluno = Pick<Aluno, 'id' | 'nome' | 'apelido' | 'foto' | 'dataNascimento' | 'faixaAtual' | 'graus'> & {
+export type EquipeAluno = Pick<
+  Aluno,
+  'id' | 'nome' | 'apelido' | 'foto' | 'dataNascimento' | 'faixaAtual' | 'graus' | 'tiposAula'
+> & {
   isMe?: boolean;
+  showFaixa?: boolean;
   dataPagamento?: string | null;
   pagamentoPago?: boolean | null;
   pagamentoReferencia?: string | null;
@@ -71,7 +75,16 @@ export type EquipeAluno = Pick<Aluno, 'id' | 'nome' | 'apelido' | 'foto' | 'data
 };
 
 export type MeuAluno = EquipeAluno &
-  Pick<Aluno, 'dataPagamento' | 'pagamentoPago' | 'pagamentoReferencia' | 'pagamentosPagos' | 'createdAt' | 'cadastroAppAt'>;
+  Pick<
+    Aluno,
+    | 'dataPagamento'
+    | 'pagamentoPago'
+    | 'pagamentoReferencia'
+    | 'pagamentosPagos'
+    | 'createdAt'
+    | 'cadastroAppAt'
+    | 'tiposAulaIds'
+  >;
 
 export type Depoimento = {
   id: string;

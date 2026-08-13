@@ -174,6 +174,11 @@ export default function CalendarioScreen() {
     () => getStudentCategoryByBirthDate(meuAluno?.dataNascimento)?.id ?? null,
     [meuAluno?.dataNascimento]
   );
+  const meusTipoAulaIds = useMemo(() => {
+    const fromIds = meuAluno?.tiposAulaIds ?? [];
+    const fromTipos = meuAluno?.tiposAula?.map((tipo) => tipo.id) ?? [];
+    return [...new Set([...fromIds, ...fromTipos])];
+  }, [meuAluno?.tiposAula, meuAluno?.tiposAulaIds]);
   const tiposAulaVisiveis = useMemo(
     () =>
       tiposAula.filter(
@@ -187,12 +192,14 @@ export default function CalendarioScreen() {
       const matchesTime = timeFilter === 'passadas' ? occurred : !occurred;
       if (!matchesTime) return false;
       if (isProfessor) return true;
+      if (meusTipoAulaIds.length === 0) return false;
+      if (!meusTipoAulaIds.includes(aula.tipoAula.id)) return false;
       if (!studentCategoryId) return false;
       const cats = aula.categorias ?? [];
       if (cats.length === 0) return true;
       return cats.includes(studentCategoryId);
     });
-  }, [aulas, isProfessor, studentCategoryId, timeFilter]);
+  }, [aulas, isProfessor, meusTipoAulaIds, studentCategoryId, timeFilter]);
   const aulasPorDia = useMemo(() => {
     const groups = groupAulasByDay(aulasVisiveis);
     return timeFilter === 'passadas' ? [...groups].reverse() : groups;

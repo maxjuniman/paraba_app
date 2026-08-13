@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { Component, useCallback, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -34,7 +33,27 @@ type PickedVideo = {
   mimeType?: string | null;
 };
 
-export default function VideosScreen() {
+class VideoScreenErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Videos screen error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+function VideosScreenContent() {
   const topPadding = useScreenTopPadding();
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -44,6 +63,7 @@ export default function VideosScreen() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [videos, setVideos] = useState<VideoUpdate[]>([]);
+  const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState({
     titulo: '',
     descricao: '',
@@ -53,11 +73,14 @@ export default function VideosScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const current = await getCurrentUser();
       setUser(current);
       setVideos(await parabaService.listarVideos());
     } catch (error) {
-      showError(apiErrorMessage(error, 'Nao foi possivel carregar os videos.'));
+      const message = apiErrorMessage(error, 'Nao foi possivel carregar os videos.');
+      setLoadError(message);
+      showError(message);
     } finally {
       setLoading(false);
     }
@@ -73,6 +96,7 @@ export default function VideosScreen() {
 
   const pickVideo = async () => {
     try {
+      const DocumentPicker = await import('expo-document-picker');
       const result = await DocumentPicker.getDocumentAsync({
         type: ['video/mp4', 'video/quicktime', 'video/webm', 'video/*'],
         copyToCacheDirectory: true,
@@ -135,11 +159,7 @@ export default function VideosScreen() {
   const openVideo = async (video: VideoUpdate) => {
     const url = resolveMediaUrl(video.url);
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) {
-        showError('Nao foi possivel abrir este video.');
-        return;
-      }
+      // Nao usar canOpenURL: no Android costuma falhar para https sem queries extras.
       await Linking.openURL(url);
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel abrir o video.'));
@@ -155,9 +175,16 @@ export default function VideosScreen() {
       <Text style={styles.title}>Videos</Text>
       <Text style={styles.subtitle}>
         {isProfessor
-          ? 'Envie videos para o servidor (titulo, descricao e arquivo) e a equipe assiste pelo player do celular.'
-          : 'Assista aos videos publicados pelos professores.'}
+          ? 'Envie videos para o servidor; a equipe abre no player do celular.'
+          : 'Toque em Assistir para abrir o video no player do celular.'}
       </Text>
+
+      {loadError ? (
+        <AppCard style={styles.formCard}>
+          <Text style={styles.videoText}>{loadError}</Text>
+          <AppButton onPress={() => void load()}>Tentar novamente</AppButton>
+        </AppCard>
+      ) : null}
 
       {isProfessor ? (
         <AppCard style={styles.formCard}>
@@ -193,7 +220,7 @@ export default function VideosScreen() {
 
       <Text style={styles.sectionTitle}>{isProfessor ? 'Videos publicados' : 'Biblioteca'}</Text>
       {loading ? <ActivityIndicator color={colors.primary} /> : null}
-      {!loading && videos.length === 0 ? (
+      {!loading && videos.length === 0 && !loadError ? (
         <Text style={styles.empty}>Nenhum video publicado ainda.</Text>
       ) : null}
 
@@ -225,6 +252,34 @@ export default function VideosScreen() {
 
       <AlertError visible={errorVisible} message={errorMessage} title={errorTitle} onClose={hideError} />
     </ScrollView>
+  );
+}
+
+export default function VideosScreen() {
+  const { colors } = useAppTheme();
+  const topPadding = useScreenTopPadding();
+
+  return (
+    <VideoScreenErrorBoundary
+      fallback={
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: colors.background,
+            padding: 20,
+            paddingTop: topPadding,
+            gap: 12,
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: 28, fontWeight: '900' }}>Videos</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
+            Nao foi possivel abrir a tela de videos. Feche o app e abra de novo.
+          </Text>
+        </View>
+      }
+    >
+      <VideosScreenContent />
+    </VideoScreenErrorBoundary>
   );
 }
 
