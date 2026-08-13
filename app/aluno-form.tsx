@@ -20,7 +20,7 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
-import { parabaService } from '@/services/parabaService';
+import { parabaService, type TipoAula } from '@/services/parabaService';
 import { brDateToIso, formatDate, formatPhone, isValidBrazilMobile } from '@/utils/formatters';
 import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
@@ -60,6 +60,7 @@ const emptyForm = {
   dataPagamento: '',
   faixaAtual: '',
   graus: 0,
+  tiposAulaIds: [] as string[],
 };
 
 export default function AlunoFormScreen() {
@@ -73,21 +74,24 @@ export default function AlunoFormScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
 
-  const [loading, setLoading] = useState(isEditing);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [tipos, setTipos] = useState<TipoAula[]>([]);
   const [userEmail, setUserEmail] = useState('');
 
   const loadAluno = useCallback(async () => {
-    if (!alunoId) {
-      setForm(emptyForm);
-      setUserEmail('');
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
+      const tiposAula = await parabaService.listarTiposAula();
+      setTipos(tiposAula);
+
+      if (!alunoId) {
+        setForm(emptyForm);
+        setUserEmail('');
+        return;
+      }
+
       const alunos = await parabaService.listarAlunos();
       const aluno = alunos.find((item) => item.id === alunoId);
       if (!aluno) {
@@ -108,6 +112,7 @@ export default function AlunoFormScreen() {
         dataPagamento: aluno.dataPagamento ?? '',
         faixaAtual: aluno.faixaAtual ?? '',
         graus: aluno.graus ?? 0,
+        tiposAulaIds: aluno.tiposAulaIds ?? aluno.tiposAula?.map((tipo) => tipo.id) ?? [],
       });
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar o aluno.'));
@@ -131,6 +136,15 @@ export default function AlunoFormScreen() {
     }
   };
 
+  const toggleTipo = (tipoId: string) => {
+    setForm((previous) => ({
+      ...previous,
+      tiposAulaIds: previous.tiposAulaIds.includes(tipoId)
+        ? previous.tiposAulaIds.filter((item) => item !== tipoId)
+        : [...previous.tiposAulaIds, tipoId],
+    }));
+  };
+
   const submit = async () => {
     Keyboard.dismiss();
     if (!form.nome.trim()) {
@@ -146,6 +160,11 @@ export default function AlunoFormScreen() {
 
     if (!isValidBrazilMobile(form.celular)) {
       showError('Informe um celular valido com DDD.');
+      return;
+    }
+
+    if (form.tiposAulaIds.length === 0) {
+      showError('Selecione ao menos um tipo de aula.');
       return;
     }
 
@@ -168,6 +187,7 @@ export default function AlunoFormScreen() {
         dataPagamento: dataPagamento || undefined,
         faixaAtual: form.faixaAtual || undefined,
         graus: form.graus,
+        tiposAulaIds: form.tiposAulaIds,
       };
 
       if (alunoId) {
@@ -286,6 +306,25 @@ export default function AlunoFormScreen() {
             keyboardType="number-pad"
             maxLength={2}
           />
+          <Text style={styles.fieldLabel}>Tipo de aula</Text>
+          {tipos.length === 0 ? (
+            <Text style={styles.hint}>Nenhum tipo cadastrado. Crie um tipo em Calendario antes.</Text>
+          ) : (
+            <View style={styles.optionsGrid}>
+              {tipos.map((tipo) => {
+                const selected = form.tiposAulaIds.includes(tipo.id);
+                return (
+                  <Pressable
+                    key={tipo.id}
+                    style={[styles.option, selected && styles.optionSelected]}
+                    onPress={() => toggleTipo(tipo.id)}
+                  >
+                    <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{tipo.nome}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           <Text style={styles.fieldLabel}>Faixa atual</Text>
           <View style={styles.optionsGrid}>
             {FAIXAS.map((faixa) => {
@@ -317,7 +356,7 @@ export default function AlunoFormScreen() {
             })}
           </View>
           <AppButton loading={saving} onPress={() => void submit()}>
-            {isEditing ? 'Salvar alterações' : 'Salvar aluno'}
+            {saving ? 'Salvando...' : 'Salvar aluno'}
           </AppButton>
         </AppCard>
       )}
@@ -376,29 +415,37 @@ function createStyles(colors: ThemeColors) {
       fontSize: 15,
       minHeight: 50,
       paddingHorizontal: 14,
+      paddingVertical: 12,
     },
     inputDisabled: {
-      opacity: 0.75,
+      opacity: 0.7,
+    },
+    fieldLabel: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '800',
+      marginTop: 4,
+    },
+    hint: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
     },
     photoRow: {
       alignItems: 'center',
       flexDirection: 'row',
-      gap: 12,
+      gap: 14,
     },
     formPhoto: {
-      borderRadius: 34,
-      height: 68,
-      width: 68,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      height: 84,
+      width: 84,
     },
     photoButtons: {
       flex: 1,
       gap: 8,
-    },
-    fieldLabel: {
-      color: colors.text,
-      fontSize: 13,
-      fontWeight: '800',
-      marginTop: 2,
     },
     optionsGrid: {
       flexDirection: 'row',
@@ -406,11 +453,12 @@ function createStyles(colors: ThemeColors) {
       gap: 8,
     },
     option: {
+      backgroundColor: colors.inputBg,
       borderColor: colors.border,
       borderRadius: 999,
       borderWidth: 1,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
     optionSelected: {
       backgroundColor: colors.primary,
@@ -426,16 +474,18 @@ function createStyles(colors: ThemeColors) {
     },
     gradeRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: 8,
     },
     gradeOption: {
       alignItems: 'center',
+      backgroundColor: colors.inputBg,
       borderColor: colors.border,
-      borderRadius: 999,
+      borderRadius: 12,
       borderWidth: 1,
-      height: 40,
+      height: 44,
       justifyContent: 'center',
-      width: 40,
+      width: 44,
     },
   });
 }

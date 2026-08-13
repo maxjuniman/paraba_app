@@ -25,7 +25,7 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
-import { parabaService, type Aluno } from '@/services/parabaService';
+import { parabaService, type Aluno, type TipoAula } from '@/services/parabaService';
 
 const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
 
@@ -39,6 +39,13 @@ function isoToBrDate(value?: string | null): string {
   const [year, month, day] = dateOnly.split('-');
   if (!year || !month || !day || year.length !== 4) return value;
   return `${day}/${month}/${year}`;
+}
+
+function tiposAulaLabel(aluno: Aluno): string {
+  if (aluno.tiposAula?.length) {
+    return aluno.tiposAula.map((tipo) => tipo.nome).join(', ');
+  }
+  return 'sem tipo';
 }
 
 type ConfirmAction =
@@ -55,8 +62,10 @@ export default function AlunosScreen() {
   const onPrimary = selectedOnPrimaryText(colors.primary);
   const [loading, setLoading] = useState(false);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
+  const [tipos, setTipos] = useState<TipoAula[]>([]);
   const [nameFilter, setNameFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<StudentCategoryId>('all');
+  const [tipoAulaFilter, setTipoAulaFilter] = useState<string>('all');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedAlunoId, setExpandedAlunoId] = useState<string | null>(null);
   const [unlinkingAlunoId, setUnlinkingAlunoId] = useState<string | null>(null);
@@ -71,7 +80,12 @@ export default function AlunosScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      setAlunos(await parabaService.listarAlunos());
+      const [list, tiposAula] = await Promise.all([
+        parabaService.listarAlunos(),
+        parabaService.listarTiposAula(),
+      ]);
+      setAlunos(list);
+      setTipos(tiposAula);
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar os alunos.'));
     } finally {
@@ -243,8 +257,14 @@ export default function AlunosScreen() {
 
         const category = getStudentCategoryByBirthDate(aluno.dataNascimento);
         const matchesCategory = categoryFilter === 'all' || category?.id === categoryFilter;
+        const alunoTipoIds = aluno.tiposAulaIds ?? aluno.tiposAula?.map((tipo) => tipo.id) ?? [];
+        const matchesTipo =
+          tipoAulaFilter === 'all' ||
+          (tipoAulaFilter === 'none'
+            ? alunoTipoIds.length === 0
+            : alunoTipoIds.includes(tipoAulaFilter));
 
-        return matchesName && matchesCategory;
+        return matchesName && matchesCategory && matchesTipo;
       })
       .sort((a, b) => {
         const aActive = a.ativo !== false ? 0 : 1;
@@ -252,9 +272,10 @@ export default function AlunosScreen() {
         if (aActive !== bActive) return aActive - bActive;
         return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
       });
-  }, [alunos, categoryFilter, nameFilter]);
+  }, [alunos, categoryFilter, nameFilter, tipoAulaFilter]);
 
-  const hasActiveFilters = Boolean(nameFilter.trim()) || categoryFilter !== 'all';
+  const hasActiveFilters =
+    Boolean(nameFilter.trim()) || categoryFilter !== 'all' || tipoAulaFilter !== 'all';
 
   return (
     <ScrollView
@@ -307,6 +328,7 @@ export default function AlunosScreen() {
               placeholder="Filtrar por nome ou apelido"
               placeholderTextColor={colors.textMuted}
             />
+            <Text style={styles.filterLabel}>Categoria</Text>
             <View style={styles.optionsGrid}>
               {STUDENT_CATEGORY_FILTERS.map((category) => {
                 const selected = categoryFilter === category.id;
@@ -323,6 +345,43 @@ export default function AlunosScreen() {
                 );
               })}
             </View>
+            <Text style={styles.filterLabel}>Tipo de aula</Text>
+            {tipos.length > 0 ? (
+              <View style={styles.optionsGrid}>
+                <Pressable
+                  style={[styles.option, tipoAulaFilter === 'all' && styles.optionSelected]}
+                  onPress={() => setTipoAulaFilter('all')}
+                >
+                  <Text style={[styles.optionText, tipoAulaFilter === 'all' && styles.optionTextSelected]}>
+                    Todas as aulas
+                  </Text>
+                </Pressable>
+                {tipos.map((tipo) => {
+                  const selected = tipoAulaFilter === tipo.id;
+                  return (
+                    <Pressable
+                      key={tipo.id}
+                      style={[styles.option, selected && styles.optionSelected]}
+                      onPress={() => setTipoAulaFilter(tipo.id)}
+                    >
+                      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                        {tipo.nome}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  style={[styles.option, tipoAulaFilter === 'none' && styles.optionSelected]}
+                  onPress={() => setTipoAulaFilter('none')}
+                >
+                  <Text style={[styles.optionText, tipoAulaFilter === 'none' && styles.optionTextSelected]}>
+                    Sem tipo
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Text style={styles.filtersHint}>Nenhum tipo cadastrado no calendario.</Text>
+            )}
           </>
         ) : null}
       </AppCard>
@@ -359,6 +418,8 @@ export default function AlunosScreen() {
                   {!isActive ? 'Inativo · ' : ''}
                   {aluno.apelido ? `${aluno.apelido} · ` : ''}
                   {category?.label ?? 'sem categoria'}
+                  {' · '}
+                  {tiposAulaLabel(aluno)}
                 </Text>
               </View>
               <Ionicons
@@ -384,6 +445,7 @@ export default function AlunosScreen() {
                 <Text style={styles.studentMeta}>
                   Status: {isActive ? 'Ativo' : 'Inativo (sem acesso ao app)'}
                 </Text>
+                <Text style={styles.studentMeta}>Tipo de aula: {tiposAulaLabel(aluno)}</Text>
                 {aluno.nomeResponsavel ? (
                   <Text style={styles.studentMeta}>Responsavel: {aluno.nomeResponsavel}</Text>
                 ) : null}
@@ -583,6 +645,12 @@ function createStyles(colors: ThemeColors) {
       color: colors.text,
       fontSize: 18,
       fontWeight: '800',
+    },
+    filterLabel: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+      marginTop: 4,
     },
     filtersHint: {
       color: colors.textMuted,

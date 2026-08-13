@@ -109,6 +109,12 @@ function categoryLabels(categorias?: string[] | null): string {
 }
 
 function alunoMatchesAula(aluno: PresencaDiaAluno, aula: PresencaAulaDoDia): boolean {
+  const tipoId = aula.tipoAula?.id;
+  if (tipoId) {
+    const ids = aluno.tiposAulaIds ?? aluno.tiposAula?.map((tipo) => tipo.id) ?? [];
+    if (!ids.includes(tipoId)) return false;
+  }
+
   const categorias = resolveCategorias(aula);
   if (!categorias.length) return true;
   const category = getStudentCategoryByBirthDate(aluno.dataNascimento);

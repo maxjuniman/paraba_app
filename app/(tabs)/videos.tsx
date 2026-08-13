@@ -1,12 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from 'expo-router';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
-  Platform,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,85 +34,6 @@ type PickedVideo = {
   mimeType?: string | null;
 };
 
-function ActiveVideoPlayer({ url }: { url: string }) {
-  const src = resolveMediaUrl(url);
-  const player = useVideoPlayer({ uri: src }, (instance) => {
-    instance.loop = false;
-  });
-
-  return (
-    <VideoView
-      player={player}
-      style={playerStyles.video}
-      contentFit="contain"
-      nativeControls
-      allowsFullscreen
-      // SurfaceView dentro de ScrollView no Android deixa a tela preta.
-      surfaceType={Platform.OS === 'android' ? 'textureView' : undefined}
-    />
-  );
-}
-
-function VideoListItem({
-  video,
-  isPlaying,
-  isProfessor,
-  busy,
-  onPlay,
-  onStop,
-  onRemove,
-  colors,
-  styles,
-}: {
-  video: VideoUpdate;
-  isPlaying: boolean;
-  isProfessor: boolean;
-  busy: boolean;
-  onPlay: () => void;
-  onStop: () => void;
-  onRemove: () => void;
-  colors: ReturnType<typeof useAppTheme>['colors'];
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <AppCard style={styles.videoCard}>
-      <View style={styles.videoHeader}>
-        <Text style={styles.videoTitle}>{video.titulo}</Text>
-        {isProfessor ? (
-          <Pressable onPress={onRemove} disabled={busy} hitSlop={8}>
-            <Ionicons name="trash-outline" size={20} color={busy ? colors.textMuted : colors.danger} />
-          </Pressable>
-        ) : null}
-      </View>
-      {video.descricao ? <Text style={styles.videoText}>{video.descricao}</Text> : null}
-
-      {isPlaying ? (
-        <View style={styles.playerWrap}>
-          <ActiveVideoPlayer url={video.url} />
-          <Pressable style={styles.stopButton} onPress={onStop}>
-            <Text style={styles.stopButtonText}>Fechar player</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <Pressable style={styles.playPlaceholder} onPress={onPlay}>
-          <Ionicons name="play-circle" size={48} color={colors.primary} />
-          <Text style={styles.playPlaceholderText}>Assistir</Text>
-        </Pressable>
-      )}
-    </AppCard>
-  );
-}
-
-const playerStyles = StyleSheet.create({
-  video: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-});
-
 export default function VideosScreen() {
   const topPadding = useScreenTopPadding();
   const { colors } = useAppTheme();
@@ -122,7 +42,6 @@ export default function VideosScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [playingId, setPlayingId] = useState<string | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [videos, setVideos] = useState<VideoUpdate[]>([]);
   const [form, setForm] = useState({
@@ -149,9 +68,6 @@ export default function VideosScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-      return () => {
-        setPlayingId(null);
-      };
     }, [load])
   );
 
@@ -207,7 +123,6 @@ export default function VideosScreen() {
   const remove = async (video: VideoUpdate) => {
     try {
       setBusyId(video.id);
-      if (playingId === video.id) setPlayingId(null);
       await parabaService.excluirVideo(video.id);
       setVideos((previous) => previous.filter((item) => item.id !== video.id));
     } catch (error) {
@@ -217,17 +132,30 @@ export default function VideosScreen() {
     }
   };
 
+  const openVideo = async (video: VideoUpdate) => {
+    const url = resolveMediaUrl(video.url);
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        showError('Nao foi possivel abrir este video.');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      showError(apiErrorMessage(error, 'Nao foi possivel abrir o video.'));
+    }
+  };
+
   return (
     <ScrollView
       style={styles.scroll}
       contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
       keyboardShouldPersistTaps="handled"
-      removeClippedSubviews={Platform.OS === 'android' ? false : undefined}
     >
       <Text style={styles.title}>Videos</Text>
       <Text style={styles.subtitle}>
         {isProfessor
-          ? 'Envie videos para o servidor (titulo, descricao e arquivo) e a equipe assiste no player.'
+          ? 'Envie videos para o servidor (titulo, descricao e arquivo) e a equipe assiste pelo player do celular.'
           : 'Assista aos videos publicados pelos professores.'}
       </Text>
 
@@ -270,18 +198,29 @@ export default function VideosScreen() {
       ) : null}
 
       {videos.map((video) => (
-        <VideoListItem
-          key={video.id}
-          video={video}
-          isPlaying={playingId === video.id}
-          isProfessor={isProfessor}
-          busy={busyId === video.id}
-          onPlay={() => setPlayingId(video.id)}
-          onStop={() => setPlayingId(null)}
-          onRemove={() => void remove(video)}
-          colors={colors}
-          styles={styles}
-        />
+        <AppCard key={video.id} style={styles.videoCard}>
+          <View style={styles.videoHeader}>
+            <Text style={styles.videoTitle}>{video.titulo}</Text>
+            {isProfessor ? (
+              <Pressable
+                onPress={() => void remove(video)}
+                disabled={busyId === video.id}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={20}
+                  color={busyId === video.id ? colors.textMuted : colors.danger}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+          {video.descricao ? <Text style={styles.videoText}>{video.descricao}</Text> : null}
+          <Pressable style={styles.playButton} onPress={() => void openVideo(video)}>
+            <Ionicons name="play-circle" size={28} color={colors.primary} />
+            <Text style={styles.playButtonText}>Assistir video</Text>
+          </Pressable>
+        </AppCard>
       ))}
 
       <AlertError visible={errorVisible} message={errorMessage} title={errorTitle} onClose={hideError} />
@@ -384,33 +323,21 @@ function createStyles(colors: ReturnType<typeof useAppTheme>['colors']) {
       fontSize: 14,
       lineHeight: 20,
     },
-    playPlaceholder: {
+    playButton: {
       alignItems: 'center',
-      aspectRatio: 16 / 9,
       backgroundColor: colors.inputBg,
       borderColor: colors.border,
       borderRadius: 12,
       borderWidth: 1,
-      gap: 8,
-      justifyContent: 'center',
-      width: '100%',
+      flexDirection: 'row',
+      gap: 10,
+      minHeight: 52,
+      paddingHorizontal: 14,
     },
-    playPlaceholderText: {
+    playButtonText: {
       color: colors.text,
       fontSize: 15,
       fontWeight: '800',
-    },
-    playerWrap: {
-      gap: 8,
-    },
-    stopButton: {
-      alignSelf: 'flex-start',
-      paddingVertical: 4,
-    },
-    stopButtonText: {
-      color: colors.textMuted,
-      fontSize: 13,
-      fontWeight: '700',
     },
   });
 }

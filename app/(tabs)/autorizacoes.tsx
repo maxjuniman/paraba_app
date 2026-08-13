@@ -20,7 +20,7 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
-import { parabaService, type Aluno, type PendingUser } from '@/services/parabaService';
+import { parabaService, type Aluno, type PendingUser, type TipoAula } from '@/services/parabaService';
 import { brDateToIso, formatDate, formatPhone, isValidBrazilMobile } from '@/utils/formatters';
 import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
 
@@ -56,6 +56,7 @@ export default function AutorizacoesScreen() {
   const [saving, setSaving] = useState(false);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [alunos, setAlunos] = useState<Aluno[]>([]);
+  const [tipos, setTipos] = useState<TipoAula[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedAlunoIds, setSelectedAlunoIds] = useState<string[]>([]);
   const [showNewAluno, setShowNewAluno] = useState(false);
@@ -70,6 +71,7 @@ export default function AutorizacoesScreen() {
     dataPagamento: '',
     faixaAtual: '',
     graus: 0,
+    tiposAulaIds: [] as string[],
   });
 
   const load = useCallback(
@@ -81,12 +83,14 @@ export default function AutorizacoesScreen() {
         } else {
           setLoading(true);
         }
-        const [usersData, alunosData] = await Promise.all([
+        const [usersData, alunosData, tiposAula] = await Promise.all([
           parabaService.listarUsuariosPendentes(),
           parabaService.listarAlunos(),
+          parabaService.listarTiposAula(),
         ]);
         setPendingUsers(usersData);
         setAlunos(alunosData);
+        setTipos(tiposAula);
       } catch (error) {
         showError(apiErrorMessage(error, 'Nao foi possivel carregar as autorizacoes.'));
       } finally {
@@ -138,6 +142,7 @@ export default function AutorizacoesScreen() {
       dataPagamento: '',
       faixaAtual: '',
       graus: 0,
+      tiposAulaIds: [],
     });
   };
 
@@ -195,6 +200,11 @@ export default function AutorizacoesScreen() {
       return;
     }
 
+    if (newAluno.tiposAulaIds.length === 0) {
+      showError('Selecione ao menos um tipo de aula.');
+      return;
+    }
+
     const dataPagamento = newAluno.dataPagamento.trim();
     if (dataPagamento && !isValidPaymentDay(dataPagamento)) {
       showError('Informe o dia de pagamento entre 1 e 31.');
@@ -215,6 +225,7 @@ export default function AutorizacoesScreen() {
           dataPagamento: dataPagamento || undefined,
           faixaAtual: newAluno.faixaAtual || undefined,
           graus: newAluno.graus,
+          tiposAulaIds: newAluno.tiposAulaIds,
         },
       });
       setPendingUsers((previous) => previous.filter((user) => user.id !== result.user.id));
@@ -432,6 +443,32 @@ export default function AutorizacoesScreen() {
             keyboardType="number-pad"
             maxLength={2}
           />
+          <Text style={styles.label}>Tipo de aula</Text>
+          {tipos.length === 0 ? (
+            <Text style={styles.meta}>Nenhum tipo cadastrado. Crie um tipo em Calendario.</Text>
+          ) : (
+            <View style={styles.chips}>
+              {tipos.map((tipo) => {
+                const selected = newAluno.tiposAulaIds.includes(tipo.id);
+                return (
+                  <Pressable
+                    key={tipo.id}
+                    style={[styles.chip, selected && styles.optionSelected]}
+                    onPress={() =>
+                      setNewAluno((previous) => ({
+                        ...previous,
+                        tiposAulaIds: previous.tiposAulaIds.includes(tipo.id)
+                          ? previous.tiposAulaIds.filter((item) => item !== tipo.id)
+                          : [...previous.tiposAulaIds, tipo.id],
+                      }))
+                    }
+                  >
+                    <Text style={[styles.chipText, selected && styles.optionTitleSelected]}>{tipo.nome}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           <Text style={styles.label}>Faixa atual</Text>
           <View style={styles.chips}>
             {FAIXAS.map((faixa) => {
