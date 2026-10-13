@@ -2,14 +2,10 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
-  Keyboard,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { AlertError } from '@/components/ui/AlertError';
@@ -20,30 +16,12 @@ import { useAppTheme } from '@/hooks/useAppTheme';
 import { useErrorAlert } from '@/hooks/useErrorAlert';
 import { useScreenTopPadding } from '@/hooks/useScreenTopPadding';
 import { apiErrorMessage } from '@/services/api';
-import { parabaService, type Aluno, type PendingUser, type TipoAula } from '@/services/parabaService';
-import { brDateToIso, formatDate, formatPhone, isValidBrazilMobile } from '@/utils/formatters';
-import { pickStudentPhoto } from '@/utils/pickStudentPhoto';
-
-const FAIXAS = ['Branca', 'Cinza', 'Amarela', 'Laranja', 'Verde', 'Azul', 'Roxa', 'Marrom', 'Preta'];
-const GRAUS = [0, 1, 2, 3, 4];
-const MAX_ALUNOS = 2;
-const DEFAULT_STUDENT_PHOTO = require('../../assets/img/sem_foto.png');
-
-function alunoLabel(aluno: Aluno): string {
-  return aluno.apelido ? `${aluno.nome} (${aluno.apelido})` : aluno.nome;
-}
-
-function normalizePaymentDay(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 2);
-}
-
-function isValidPaymentDay(value: string): boolean {
-  const day = Number(value);
-  return Number.isInteger(day) && day >= 1 && day <= 31;
-}
-
-function selectedOnPrimaryText(primary: string): string {
-  return primary === '#FFFFFF' || primary === '#E5E7EB' ? '#000000' : '#FFFFFF';
+import { parabaService, type PendingUser } from '@/services/parabaService';
+function formatBirth(value?: string | null): string {
+  if (!value) return 'nao informado';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
 export default function AutorizacoesScreen() {
@@ -53,26 +31,8 @@ export default function AutorizacoesScreen() {
   const { errorVisible, errorMessage, errorTitle, showError, hideError } = useErrorAlert();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
-  const [alunos, setAlunos] = useState<Aluno[]>([]);
-  const [tipos, setTipos] = useState<TipoAula[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [selectedAlunoIds, setSelectedAlunoIds] = useState<string[]>([]);
-  const [showNewAluno, setShowNewAluno] = useState(false);
-  const [newAluno, setNewAluno] = useState({
-    nome: '',
-    apelido: '',
-    foto: '',
-    nomeResponsavel: '',
-    emailResponsavel: '',
-    celular: '',
-    dataNascimento: '',
-    dataPagamento: '',
-    faixaAtual: '',
-    graus: 0,
-    tiposAulaIds: [] as string[],
-  });
 
   const load = useCallback(
     async (options?: { refresh?: boolean }) => {
@@ -83,14 +43,7 @@ export default function AutorizacoesScreen() {
         } else {
           setLoading(true);
         }
-        const [usersData, alunosData, tiposAula] = await Promise.all([
-          parabaService.listarUsuariosPendentes(),
-          parabaService.listarAlunos(),
-          parabaService.listarTiposAula(),
-        ]);
-        setPendingUsers(usersData);
-        setAlunos(alunosData);
-        setTipos(tiposAula);
+        setPendingUsers(await parabaService.listarUsuariosPendentes());
       } catch (error) {
         showError(apiErrorMessage(error, 'Nao foi possivel carregar as autorizacoes.'));
       } finally {
@@ -110,142 +63,21 @@ export default function AutorizacoesScreen() {
     }, [load])
   );
 
-  const alunosSemVinculo = alunos.filter((aluno) => !aluno.userId && aluno.ativo !== false);
-  const selectedPendingUser = pendingUsers.find((user) => user.id === selectedUserId);
-  const selectedAlunos = alunos.filter((aluno) => selectedAlunoIds.includes(aluno.id));
-
-  const toggleAluno = (alunoId: string) => {
-    setShowNewAluno(false);
-    setSelectedAlunoIds((current) => {
-      if (current.includes(alunoId)) {
-        return current.filter((id) => id !== alunoId);
-      }
-      if (current.length >= MAX_ALUNOS) {
-        return current;
-      }
-      return [...current, alunoId];
-    });
-  };
-
-  const resetAuthorizationForm = () => {
-    setSelectedUserId('');
-    setSelectedAlunoIds([]);
-    setShowNewAluno(false);
-    setNewAluno({
-      nome: '',
-      apelido: '',
-      foto: '',
-      nomeResponsavel: '',
-      emailResponsavel: '',
-      celular: '',
-      dataNascimento: '',
-      dataPagamento: '',
-      faixaAtual: '',
-      graus: 0,
-      tiposAulaIds: [],
-    });
-  };
-
-  const authorizeWithExistingAluno = async () => {
-    Keyboard.dismiss();
-    if (!selectedUserId) {
-      showError('Selecione um usuario para autorizar.');
-      return;
-    }
-    if (selectedAlunoIds.length === 0) {
-      showError('Selecione 1 ou 2 alunos para vincular.');
+  const approve = async (user: PendingUser) => {
+    if (!user.alunos?.length) {
+      showError('Este cadastro antigo nao tem aluno vinculado. Peca para a pessoa se cadastrar de novo.');
       return;
     }
 
     try {
-      setSaving(true);
-      let lastResult: { user: PendingUser; aluno: Aluno } | null = null;
-      for (const alunoId of selectedAlunoIds) {
-        lastResult = await parabaService.autorizarUsuario(selectedUserId, { alunoId });
-        setAlunos((previous) =>
-          previous.map((aluno) => (aluno.id === lastResult!.aluno.id ? lastResult!.aluno : aluno))
-        );
-      }
-      if (lastResult) {
-        setPendingUsers((previous) => previous.filter((user) => user.id !== lastResult!.user.id));
-      }
-      resetAuthorizationForm();
+      setSavingId(user.id);
+      await parabaService.autorizarUsuario(user.id);
+      setPendingUsers((previous) => previous.filter((item) => item.id !== user.id));
     } catch (error) {
-      showError(apiErrorMessage(error, 'Nao foi possivel autorizar o usuario.'));
+      showError(apiErrorMessage(error, 'Nao foi possivel autorizar o cadastro.'));
       await load();
     } finally {
-      setSaving(false);
-    }
-  };
-
-  const authorizeWithNewAluno = async () => {
-    Keyboard.dismiss();
-    if (!selectedUserId) {
-      showError('Selecione um usuario para autorizar.');
-      return;
-    }
-    if (!newAluno.nome.trim()) {
-      showError('Informe o nome do aluno.');
-      return;
-    }
-
-    const dataNascimento = brDateToIso(newAluno.dataNascimento);
-    if (!dataNascimento) {
-      showError('Informe a data de nascimento no formato DD/MM/AAAA.');
-      return;
-    }
-
-    if (!isValidBrazilMobile(newAluno.celular)) {
-      showError('Informe um celular valido com DDD.');
-      return;
-    }
-
-    if (newAluno.tiposAulaIds.length === 0) {
-      showError('Selecione ao menos um tipo de aula.');
-      return;
-    }
-
-    const dataPagamento = newAluno.dataPagamento.trim();
-    if (dataPagamento && !isValidPaymentDay(dataPagamento)) {
-      showError('Informe o dia de pagamento entre 1 e 31.');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      const result = await parabaService.autorizarUsuario(selectedUserId, {
-        aluno: {
-          nome: newAluno.nome.trim(),
-          apelido: newAluno.apelido.trim() || undefined,
-          foto: newAluno.foto || undefined,
-          nomeResponsavel: newAluno.nomeResponsavel.trim() || undefined,
-          emailResponsavel: newAluno.emailResponsavel.trim() || undefined,
-          celular: newAluno.celular.trim(),
-          dataNascimento,
-          dataPagamento: dataPagamento || undefined,
-          faixaAtual: newAluno.faixaAtual || undefined,
-          graus: newAluno.graus,
-          tiposAulaIds: newAluno.tiposAulaIds,
-        },
-      });
-      setPendingUsers((previous) => previous.filter((user) => user.id !== result.user.id));
-      setAlunos((previous) => [result.aluno, ...previous]);
-      resetAuthorizationForm();
-    } catch (error) {
-      showError(apiErrorMessage(error, 'Nao foi possivel autorizar o usuario.'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const chooseNewAlunoPhoto = async () => {
-    try {
-      const foto = await pickStudentPhoto();
-      if (foto) {
-        setNewAluno((previous) => ({ ...previous, foto }));
-      }
-    } catch (error) {
-      showError(error instanceof Error ? error.message : 'Nao foi possivel selecionar a foto.');
+      setSavingId(null);
     }
   };
 
@@ -267,243 +99,55 @@ export default function AutorizacoesScreen() {
     >
       <Text style={styles.title}>Autorizações</Text>
       <Text style={styles.subtitle}>
-        Selecione o cadastro pendente e clique em até 2 alunos sem vínculo para autorizar.
+        Revise os cadastros enviados pelo app e aprove para liberar o acesso.
       </Text>
 
       {loading ? <ActivityIndicator color={colors.primary} /> : null}
-
-      <AppCard style={styles.card}>
-        <Text style={styles.cardTitle}>Cadastro pendente</Text>
-        <Text style={styles.helpText}>Usuario que criou conta no app e aguarda autorizacao.</Text>
-        {pendingUsers.length === 0 ? <Text style={styles.meta}>Nenhum usuario pendente.</Text> : null}
-        {pendingUsers.map((user) => {
-          const selected = selectedUserId === user.id;
-          return (
-            <Pressable
-              key={user.id}
-              style={[styles.option, selected && styles.optionSelected]}
-              onPress={() => setSelectedUserId(user.id)}
-            >
-              <Text style={[styles.optionKicker, selected && styles.optionMetaSelected]}>CADASTRO PENDENTE</Text>
-              <Text style={[styles.optionTitle, selected && styles.optionTitleSelected]}>{user.nome}</Text>
-              <Text style={[styles.optionMeta, selected && styles.optionMetaSelected]}>{user.email}</Text>
-            </Pressable>
-          );
-        })}
-      </AppCard>
-
-      <AppCard style={styles.card}>
-        <Text style={styles.cardTitle}>Alunos cadastrados</Text>
-        <Text style={styles.helpText}>
-          Clique em 1 ou 2 alunos sem usuario ({selectedAlunoIds.length}/{MAX_ALUNOS}).
-        </Text>
-        {selectedPendingUser ? (
-          <Text style={styles.contextText}>
-            Cadastro escolhido: <Text style={styles.contextStrong}>{selectedPendingUser.nome}</Text>
-          </Text>
-        ) : (
-          <Text style={styles.meta}>Selecione um cadastro pendente acima antes de autorizar.</Text>
-        )}
-        {!loading && alunosSemVinculo.length === 0 ? (
-          <Text style={styles.meta}>Nenhum aluno sem vinculo disponivel.</Text>
-        ) : null}
-        {alunosSemVinculo.map((aluno) => {
-          const selected = selectedAlunoIds.includes(aluno.id);
-          const blocked = !selected && selectedAlunoIds.length >= MAX_ALUNOS;
-          return (
-            <Pressable
-              key={aluno.id}
-              disabled={blocked}
-              style={[
-                styles.alunoButton,
-                selected && styles.optionSelected,
-                blocked && styles.alunoButtonBlocked,
-              ]}
-              onPress={() => toggleAluno(aluno.id)}
-            >
-              <Text style={[styles.alunoButtonText, selected && styles.optionTitleSelected]}>
-                {alunoLabel(aluno)}
-              </Text>
-            </Pressable>
-          );
-        })}
-        {selectedAlunos.length > 0 ? (
-          <View style={styles.confirmBox}>
-            <Text style={styles.confirmTitle}>
-              Vincular esse cadastro a {selectedAlunos.length === 1 ? 'este aluno' : 'estes alunos'}?
-            </Text>
-            <Text style={styles.confirmMeta}>
-              {selectedAlunos.map((aluno) => alunoLabel(aluno)).join(' · ')}
-            </Text>
-            <Text style={styles.confirmMeta}>
-              {selectedPendingUser
-                ? `Cadastro: ${selectedPendingUser.nome}`
-                : 'Selecione um cadastro pendente antes de confirmar.'}
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                style={[styles.confirmButton, styles.confirmButtonNo]}
-                onPress={() => setSelectedAlunoIds([])}
-              >
-                <Text style={[styles.confirmButtonText, styles.confirmButtonTextNo]}>Não</Text>
-              </Pressable>
-              <Pressable
-                disabled={saving || !selectedUserId}
-                style={[styles.confirmButton, styles.confirmButtonYes, saving && styles.confirmButtonDisabled]}
-                onPress={() => void authorizeWithExistingAluno()}
-              >
-                <Text style={[styles.confirmButtonText, styles.confirmButtonTextYes]}>Sim</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-      </AppCard>
-
-      <Pressable style={styles.linkBox} onPress={() => setShowNewAluno((value) => !value)}>
-        <Text style={styles.linkText}>
-          {showNewAluno ? 'Ocultar cadastro de novo aluno' : 'Não achou o aluno cadastrado? Cadastre agora'}
-        </Text>
-      </Pressable>
-
-      {showNewAluno ? (
-        <AppCard style={styles.card}>
-          <Text style={styles.cardTitle}>Novo aluno</Text>
-          <Text style={styles.helpText}>Cadastre o aluno e autorize o cadastro pendente em seguida.</Text>
-          <TextInput
-            style={styles.input}
-            value={newAluno.nome}
-            onChangeText={(nome) => setNewAluno((previous) => ({ ...previous, nome }))}
-            placeholder="Nome do aluno"
-            placeholderTextColor={colors.textMuted}
-          />
-          <TextInput
-            style={styles.input}
-            value={newAluno.apelido}
-            onChangeText={(apelido) => setNewAluno((previous) => ({ ...previous, apelido }))}
-            placeholder="Apelido (opcional)"
-            placeholderTextColor={colors.textMuted}
-          />
-          <View style={styles.photoRow}>
-            <Image source={newAluno.foto ? { uri: newAluno.foto } : DEFAULT_STUDENT_PHOTO} style={styles.formPhoto} />
-            <View style={styles.photoButtons}>
-              <AppButton variant="secondary" onPress={chooseNewAlunoPhoto}>
-                {newAluno.foto ? 'Trocar foto' : 'Adicionar foto'}
-              </AppButton>
-              {newAluno.foto ? (
-                <AppButton variant="ghost" onPress={() => setNewAluno((previous) => ({ ...previous, foto: '' }))}>
-                  Remover foto
-                </AppButton>
-              ) : null}
-            </View>
-          </View>
-          <TextInput
-            style={styles.input}
-            value={newAluno.nomeResponsavel}
-            onChangeText={(nomeResponsavel) => setNewAluno((previous) => ({ ...previous, nomeResponsavel }))}
-            placeholder="Nome do responsavel (opcional)"
-            placeholderTextColor={colors.textMuted}
-          />
-          <TextInput
-            style={styles.input}
-            value={newAluno.emailResponsavel}
-            onChangeText={(emailResponsavel) => setNewAluno((previous) => ({ ...previous, emailResponsavel }))}
-            placeholder="E-mail do responsavel (opcional)"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TextInput
-            style={styles.input}
-            value={newAluno.celular}
-            onChangeText={(celular) => setNewAluno((previous) => ({ ...previous, celular: formatPhone(celular) }))}
-            placeholder="Celular com DDD (obrigatorio)"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="phone-pad"
-            maxLength={16}
-          />
-          <TextInput
-            style={styles.input}
-            value={newAluno.dataNascimento}
-            onChangeText={(dataNascimento) =>
-              setNewAluno((previous) => ({ ...previous, dataNascimento: formatDate(dataNascimento) }))
-            }
-            placeholder="Data nascimento DD/MM/AAAA (obrigatorio)"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={10}
-          />
-          <TextInput
-            style={styles.input}
-            value={newAluno.dataPagamento}
-            onChangeText={(dataPagamento) =>
-              setNewAluno((previous) => ({ ...previous, dataPagamento: normalizePaymentDay(dataPagamento) }))
-            }
-            placeholder="Dia pagamento mensal (1 a 31)"
-            placeholderTextColor={colors.textMuted}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-          <Text style={styles.label}>Tipo de aula</Text>
-          {tipos.length === 0 ? (
-            <Text style={styles.meta}>Nenhum tipo cadastrado. Crie um tipo em Calendario.</Text>
-          ) : (
-            <View style={styles.chips}>
-              {tipos.map((tipo) => {
-                const selected = newAluno.tiposAulaIds.includes(tipo.id);
-                return (
-                  <Pressable
-                    key={tipo.id}
-                    style={[styles.chip, selected && styles.optionSelected]}
-                    onPress={() =>
-                      setNewAluno((previous) => ({
-                        ...previous,
-                        tiposAulaIds: previous.tiposAulaIds.includes(tipo.id)
-                          ? previous.tiposAulaIds.filter((item) => item !== tipo.id)
-                          : [...previous.tiposAulaIds, tipo.id],
-                      }))
-                    }
-                  >
-                    <Text style={[styles.chipText, selected && styles.optionTitleSelected]}>{tipo.nome}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-          <Text style={styles.label}>Faixa atual</Text>
-          <View style={styles.chips}>
-            {FAIXAS.map((faixa) => {
-              const selected = newAluno.faixaAtual === faixa;
-              return (
-                <Pressable
-                  key={faixa}
-                  style={[styles.chip, selected && styles.optionSelected]}
-                  onPress={() => setNewAluno((previous) => ({ ...previous, faixaAtual: faixa }))}
-                >
-                  <Text style={[styles.chipText, selected && styles.optionTitleSelected]}>{faixa}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.label}>Graus</Text>
-          <View style={styles.chips}>
-            {GRAUS.map((grau) => {
-              const selected = newAluno.graus === grau;
-              return (
-                <Pressable
-                  key={grau}
-                  style={[styles.gradeChip, selected && styles.optionSelected]}
-                  onPress={() => setNewAluno((previous) => ({ ...previous, graus: grau }))}
-                >
-                  <Text style={[styles.chipText, selected && styles.optionTitleSelected]}>{grau}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <AppButton loading={saving} onPress={authorizeWithNewAluno}>
-            Cadastrar e autorizar
-          </AppButton>
-        </AppCard>
+      {!loading && pendingUsers.length === 0 ? (
+        <Text style={styles.empty}>Nenhum cadastro pendente.</Text>
       ) : null}
+
+      {pendingUsers.map((user) => {
+        const aluno = user.alunos?.[0];
+        const tipos = aluno?.tiposAula?.map((tipo) => tipo.nome).join(', ') || 'nao informado';
+        const isSaving = savingId === user.id;
+
+        return (
+          <AppCard key={user.id} style={styles.card}>
+            <Text style={styles.kicker}>CADASTRO PENDENTE</Text>
+            <Text style={styles.name}>{user.nome}</Text>
+            <Text style={styles.meta}>{user.email}</Text>
+            {user.celular ? <Text style={styles.meta}>Celular: {user.celular}</Text> : null}
+
+            {aluno ? (
+              <View style={styles.alunoBox}>
+                <Text style={styles.alunoTitle}>Aluno</Text>
+                <Text style={styles.meta}>
+                  {aluno.apelido ? `${aluno.nome} (${aluno.apelido})` : aluno.nome}
+                </Text>
+                <Text style={styles.meta}>Nascimento: {formatBirth(aluno.dataNascimento)}</Text>
+                <Text style={styles.meta}>Tipos: {tipos}</Text>
+                {aluno.faixaAtual ? <Text style={styles.meta}>Faixa: {aluno.faixaAtual}</Text> : null}
+                {aluno.nomeResponsavel ? (
+                  <Text style={styles.meta}>Responsavel: {aluno.nomeResponsavel}</Text>
+                ) : null}
+              </View>
+            ) : (
+              <Text style={styles.warning}>
+                Cadastro antigo sem aluno. Oriente a pessoa a se cadastrar novamente no app.
+              </Text>
+            )}
+
+            <AppButton
+              loading={isSaving}
+              disabled={!aluno || Boolean(savingId)}
+              onPress={() => void approve(user)}
+            >
+              Aprovar cadastro
+            </AppButton>
+          </AppCard>
+        );
+      })}
 
       <AlertError visible={errorVisible} message={errorMessage} title={errorTitle} onClose={hideError} />
     </ScrollView>
@@ -511,8 +155,6 @@ export default function AutorizacoesScreen() {
 }
 
 function createStyles(colors: ThemeColors) {
-  const onPrimary = selectedOnPrimaryText(colors.primary);
-
   return StyleSheet.create({
     scroll: {
       flex: 1,
@@ -532,200 +174,50 @@ function createStyles(colors: ThemeColors) {
       fontSize: 15,
       lineHeight: 22,
     },
-    card: {
-      gap: 12,
-    },
-    cardTitle: {
-      color: colors.text,
-      fontSize: 18,
-      fontWeight: '800',
-    },
-    helpText: {
+    empty: {
       color: colors.textMuted,
-      fontSize: 13,
-      lineHeight: 19,
-    },
-    contextText: {
-      color: colors.textMuted,
-      fontSize: 13,
-      lineHeight: 19,
-    },
-    contextStrong: {
-      color: colors.text,
-      fontWeight: '900',
-    },
-    input: {
-      backgroundColor: colors.inputBg,
-      borderColor: colors.border,
-      borderRadius: 14,
-      borderWidth: 1,
-      color: colors.text,
-      fontSize: 15,
-      minHeight: 50,
-      paddingHorizontal: 14,
-    },
-    photoRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: 12,
-    },
-    formPhoto: {
-      borderRadius: 34,
-      height: 68,
-      width: 68,
-    },
-    photoButtons: {
-      flex: 1,
-      gap: 8,
-    },
-    option: {
-      backgroundColor: colors.inputBg,
-      borderColor: colors.border,
-      borderRadius: 14,
-      borderWidth: 1,
-      gap: 4,
-      padding: 12,
-    },
-    alunoButton: {
-      alignItems: 'center',
-      backgroundColor: colors.inputBg,
-      borderColor: colors.border,
-      borderRadius: 14,
-      borderWidth: 1,
-      minHeight: 48,
-      justifyContent: 'center',
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-    },
-    alunoButtonBlocked: {
-      opacity: 0.45,
-    },
-    alunoButtonText: {
-      color: colors.text,
-      fontSize: 15,
-      fontWeight: '800',
+      fontSize: 14,
       textAlign: 'center',
     },
-    optionSelected: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
+    card: {
+      gap: 8,
     },
-    optionTitle: {
-      color: colors.text,
-      fontSize: 14,
-      fontWeight: '800',
-    },
-    optionKicker: {
+    kicker: {
       color: colors.primary,
       fontSize: 10,
       fontWeight: '900',
       letterSpacing: 0.8,
     },
-    optionTitleSelected: {
-      color: onPrimary,
-    },
-    optionMeta: {
-      color: colors.textMuted,
-      fontSize: 12,
-    },
-    optionMetaSelected: {
-      color: onPrimary,
+    name: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '900',
     },
     meta: {
       color: colors.textMuted,
       fontSize: 13,
+      lineHeight: 19,
     },
-    confirmBox: {
-      backgroundColor: 'rgba(34, 160, 107, 0.12)',
-      borderColor: colors.secondary,
-      borderRadius: 16,
-      borderWidth: 1,
-      gap: 10,
-      padding: 14,
-    },
-    confirmTitle: {
-      color: colors.text,
-      fontSize: 16,
-      fontWeight: '900',
-      lineHeight: 22,
-    },
-    confirmMeta: {
-      color: colors.textMuted,
-      fontSize: 13,
-    },
-    confirmActions: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-    confirmButton: {
-      alignItems: 'center',
-      borderRadius: 999,
-      borderWidth: 1,
-      flex: 1,
-      minHeight: 42,
-      justifyContent: 'center',
-    },
-    confirmButtonNo: {
-      backgroundColor: colors.card,
+    alunoBox: {
+      backgroundColor: colors.inputBg,
       borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      gap: 4,
+      marginVertical: 6,
+      padding: 12,
     },
-    confirmButtonYes: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    confirmButtonDisabled: {
-      opacity: 0.55,
-    },
-    confirmButtonText: {
-      fontSize: 14,
-      fontWeight: '900',
-    },
-    confirmButtonTextNo: {
-      color: colors.text,
-    },
-    confirmButtonTextYes: {
-      color: onPrimary,
-    },
-    linkBox: {
-      alignItems: 'center',
-      paddingVertical: 4,
-    },
-    linkText: {
-      color: colors.primary,
-      fontSize: 15,
-      fontWeight: '900',
-      textAlign: 'center',
-    },
-    label: {
+    alunoTitle: {
       color: colors.text,
       fontSize: 13,
       fontWeight: '800',
+      marginBottom: 2,
     },
-    chips: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    chip: {
-      borderColor: colors.border,
-      borderRadius: 999,
-      borderWidth: 1,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-    },
-    gradeChip: {
-      alignItems: 'center',
-      borderColor: colors.border,
-      borderRadius: 999,
-      borderWidth: 1,
-      height: 40,
-      justifyContent: 'center',
-      width: 40,
-    },
-    chipText: {
-      color: colors.text,
+    warning: {
+      color: colors.danger,
       fontSize: 13,
-      fontWeight: '700',
+      lineHeight: 19,
+      marginVertical: 4,
     },
   });
 }

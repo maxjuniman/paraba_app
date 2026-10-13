@@ -12,6 +12,14 @@ export type RegisterBody = {
   celular: string;
   senha: string;
   confirmacao_senha: string;
+  apelido?: string;
+  nomeResponsavel?: string;
+  emailResponsavel?: string;
+  dataNascimento: string;
+  dataPagamento?: string;
+  faixaAtual?: string;
+  graus?: number;
+  tiposAulaIds: string[];
 };
 
 export type RegisterResponse = {
@@ -136,6 +144,20 @@ export type PresencaDia = {
 
 export type PendingUser = SessionUser & {
   ativo: boolean;
+  alunos?: Array<{
+    id: string;
+    nome: string;
+    apelido?: string | null;
+    celular?: string;
+    ativo?: boolean;
+    faixaAtual?: string | null;
+    dataNascimento?: string | null;
+    tiposAulaIds?: string[];
+    tiposAula?: { id: string; nome: string }[];
+    nomeResponsavel?: string | null;
+    emailResponsavel?: string | null;
+  }>;
+  alunosCount?: number;
 };
 
 export type VinculoAlunoResumo = {
@@ -163,6 +185,10 @@ export type VinculosUsuario = {
 
 export type AutorizarUserBody =
   | {
+      alunoId?: never;
+      aluno?: never;
+    }
+  | {
       alunoId: string;
       aluno?: never;
     }
@@ -180,6 +206,7 @@ export type PaymentStatusBody = {
   alunoId: string;
   pago: boolean;
   referencia: string;
+  dataPagamento?: string;
 };
 
 export type VideoUpdateBody = {
@@ -353,13 +380,16 @@ export const parabaService = {
     return unwrapData<VinculosUsuario>(data);
   },
 
-  async autorizarUsuario(userId: string, body: AutorizarUserBody): Promise<{ user: PendingUser; aluno: Aluno }> {
+  async autorizarUsuario(
+    userId: string,
+    body: AutorizarUserBody = {}
+  ): Promise<{ user: PendingUser; aluno: Aluno }> {
     const payload =
-      'alunoId' in body
+      body.alunoId != null
         ? { aluno_id: body.alunoId }
-        : {
-            aluno: body.aluno,
-          };
+        : body.aluno != null
+          ? { aluno: body.aluno }
+          : {};
     const { data } = await api.post<{ data?: { user: PendingUser; aluno: Aluno } } | { user: PendingUser; aluno: Aluno }>(
       `/users/${userId}/autorizar`,
       payload
@@ -446,6 +476,7 @@ export const parabaService = {
     const { data } = await api.patch<{ data?: Aluno } | Aluno>(`/alunos/${body.alunoId}/pagamento-status`, {
       pago: body.pago,
       referencia: body.referencia,
+      ...(body.dataPagamento ? { data_pagamento: body.dataPagamento } : {}),
     });
     return unwrapData<Aluno>(data);
   },

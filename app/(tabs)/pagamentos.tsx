@@ -38,6 +38,15 @@ const PAYMENT_STATUS_FILTERS: { id: PaymentStatusFilter; label: string }[] = [
   { id: 'atrasado', label: 'Em atraso' },
 ];
 
+function normalizePaymentDay(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 2);
+}
+
+function isValidPaymentDay(value: string): boolean {
+  const day = Number(value);
+  return Number.isInteger(day) && day >= 1 && day <= 31;
+}
+
 function selectedOnPrimaryText(primary: string): string {
   return primary === '#FFFFFF' || primary === '#E5E7EB' ? '#000000' : '#FFFFFF';
 }
@@ -68,11 +77,13 @@ export default function PagamentosScreen() {
   const [viewMode, setViewMode] = useState<PaymentViewMode>('current');
   const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>('todos');
   const [search, setSearch] = useState('');
+  const [dayDrafts, setDayDrafts] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setAlunos(await parabaService.listarAlunos());
+      setDayDrafts({});
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar os alunos.'));
     } finally {
@@ -114,17 +125,68 @@ export default function PagamentosScreen() {
       .some((value) => value?.toLowerCase().includes(normalizedSearch));
   });
 
+  const dayValueFor = (aluno: Aluno) =>
+    dayDrafts[aluno.id] ?? normalizePaymentDay(String(aluno.dataPagamento ?? ''));
+
+  const applyUpdatedAluno = (updated: Aluno) => {
+    setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+    setDayDrafts((previous) => {
+      const next = { ...previous };
+      delete next[updated.id];
+      return next;
+    });
+  };
+
   const updatePaymentStatus = async (aluno: Aluno, pago: boolean, reference: string) => {
+    const dataPagamento = dayValueFor(aluno).trim();
+
+    if (pago) {
+      if (!dataPagamento) {
+        showError('Informe o dia de pagamento (1 a 31) antes de marcar como pago.');
+        return;
+      }
+      if (!isValidPaymentDay(dataPagamento)) {
+        showError('Informe o dia de pagamento entre 1 e 31.');
+        return;
+      }
+    }
+
     try {
       setSavingAlunoId(aluno.id);
       const updated = await parabaService.atualizarStatusPagamento({
         alunoId: aluno.id,
         pago,
         referencia: reference,
+        ...(pago && dataPagamento ? { dataPagamento } : {}),
       });
-      setAlunos((previous) => previous.map((aluno) => (aluno.id === updated.id ? updated : aluno)));
+      applyUpdatedAluno(updated);
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel atualizar o status do pagamento.'));
+    } finally {
+      setSavingAlunoId(null);
+    }
+  };
+
+  const savePaymentDay = async (aluno: Aluno) => {
+    const dataPagamento = dayValueFor(aluno).trim();
+    const current = normalizePaymentDay(String(aluno.dataPagamento ?? ''));
+    if (dataPagamento === current) return;
+
+    if (!dataPagamento || !isValidPaymentDay(dataPagamento)) {
+      showError('Informe o dia de pagamento entre 1 e 31.');
+      setDayDrafts((previous) => ({ ...previous, [aluno.id]: current }));
+      return;
+    }
+
+    try {
+      setSavingAlunoId(aluno.id);
+      const updated = await parabaService.atualizarDataPagamento({
+        alunoId: aluno.id,
+        dataPagamento,
+      });
+      applyUpdatedAluno(updated);
+    } catch (error) {
+      showError(apiErrorMessage(error, 'Nao foi possivel salvar o dia de pagamento.'));
     } finally {
       setSavingAlunoId(null);
     }
@@ -214,13 +276,30 @@ export default function PagamentosScreen() {
               <View style={styles.cardTitleBox}>
                 <Text style={styles.studentName}>{aluno.nome}</Text>
                 {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
-                <Text style={styles.studentMeta}>
-                  Pagamento: {aluno.dataPagamento ? `Dia ${aluno.dataPagamento}` : 'nao informado'}
-                </Text>
               </View>
               <View style={[styles.statusBadge, { borderColor: statusColor }]}>
                 <Text style={[styles.statusText, { color: statusColor }]}>{paymentStatusLabel(status)}</Text>
               </View>
+            </View>
+
+            <View style={styles.dayRow}>
+              <Text style={styles.dayLabel}>Dia do pagamento</Text>
+              <TextInput
+                style={styles.dayInput}
+                value={dayValueFor(aluno)}
+                onChangeText={(value) =>
+                  setDayDrafts((previous) => ({
+                    ...previous,
+                    [aluno.id]: normalizePaymentDay(value),
+                  }))
+                }
+                onEndEditing={() => void savePaymentDay(aluno)}
+                keyboardType="number-pad"
+                maxLength={2}
+                placeholder="1-31"
+                placeholderTextColor={colors.textMuted}
+                editable={!isSaving}
+              />
             </View>
 
             <View style={styles.actionRow}>
@@ -377,6 +456,31 @@ function createStyles(colors: ThemeColors) {
     studentMeta: {
       color: colors.textMuted,
       fontSize: 12,
+    },
+    dayRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 2,
+    },
+    dayLabel: {
+      color: colors.textMuted,
+      flex: 1,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    dayInput: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 10,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '700',
+      minHeight: 36,
+      minWidth: 72,
+      paddingHorizontal: 10,
+      textAlign: 'center',
     },
     statusBadge: {
       borderRadius: 999,
