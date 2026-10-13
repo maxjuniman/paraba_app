@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -77,13 +78,14 @@ export default function PagamentosScreen() {
   const [viewMode, setViewMode] = useState<PaymentViewMode>('current');
   const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>('todos');
   const [search, setSearch] = useState('');
-  const [dayDrafts, setDayDrafts] = useState<Record<string, string>>({});
+  const [modalAluno, setModalAluno] = useState<Aluno | null>(null);
+  const [modalDay, setModalDay] = useState('');
+  const [modalError, setModalError] = useState('');
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       setAlunos(await parabaService.listarAlunos());
-      setDayDrafts({});
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel carregar os alunos.'));
     } finally {
@@ -125,41 +127,28 @@ export default function PagamentosScreen() {
       .some((value) => value?.toLowerCase().includes(normalizedSearch));
   });
 
-  const dayValueFor = (aluno: Aluno) =>
-    dayDrafts[aluno.id] ?? normalizePaymentDay(String(aluno.dataPagamento ?? ''));
-
-  const applyUpdatedAluno = (updated: Aluno) => {
-    setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
-    setDayDrafts((previous) => {
-      const next = { ...previous };
-      delete next[updated.id];
-      return next;
-    });
+  const closeModal = () => {
+    if (savingAlunoId) return;
+    setModalAluno(null);
+    setModalDay('');
+    setModalError('');
   };
 
-  const updatePaymentStatus = async (aluno: Aluno, pago: boolean, reference: string) => {
-    const dataPagamento = dayValueFor(aluno).trim();
+  const openMarkPaidModal = (aluno: Aluno) => {
+    setModalError('');
+    setModalAluno(aluno);
+    setModalDay(normalizePaymentDay(String(aluno.dataPagamento ?? '')));
+  };
 
-    if (pago) {
-      if (!dataPagamento) {
-        showError('Informe o dia de pagamento (1 a 31) antes de marcar como pago.');
-        return;
-      }
-      if (!isValidPaymentDay(dataPagamento)) {
-        showError('Informe o dia de pagamento entre 1 e 31.');
-        return;
-      }
-    }
-
+  const unmarkPaid = async (aluno: Aluno) => {
     try {
       setSavingAlunoId(aluno.id);
       const updated = await parabaService.atualizarStatusPagamento({
         alunoId: aluno.id,
-        pago,
-        referencia: reference,
-        ...(pago && dataPagamento ? { dataPagamento } : {}),
+        pago: false,
+        referencia: activeReference,
       });
-      applyUpdatedAluno(updated);
+      setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel atualizar o status do pagamento.'));
     } finally {
@@ -167,26 +156,29 @@ export default function PagamentosScreen() {
     }
   };
 
-  const savePaymentDay = async (aluno: Aluno) => {
-    const dataPagamento = dayValueFor(aluno).trim();
-    const current = normalizePaymentDay(String(aluno.dataPagamento ?? ''));
-    if (dataPagamento === current) return;
+  const confirmMarkPaid = async () => {
+    if (!modalAluno) return;
 
+    const dataPagamento = modalDay.trim();
     if (!dataPagamento || !isValidPaymentDay(dataPagamento)) {
-      showError('Informe o dia de pagamento entre 1 e 31.');
-      setDayDrafts((previous) => ({ ...previous, [aluno.id]: current }));
+      setModalError('Informe o dia em que foi pago (1 a 31).');
       return;
     }
 
     try {
-      setSavingAlunoId(aluno.id);
-      const updated = await parabaService.atualizarDataPagamento({
-        alunoId: aluno.id,
+      setModalError('');
+      setSavingAlunoId(modalAluno.id);
+      const updated = await parabaService.atualizarStatusPagamento({
+        alunoId: modalAluno.id,
+        pago: true,
+        referencia: activeReference,
         dataPagamento,
       });
-      applyUpdatedAluno(updated);
+      setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
+      setModalAluno(null);
+      setModalDay('');
     } catch (error) {
-      showError(apiErrorMessage(error, 'Nao foi possivel salvar o dia de pagamento.'));
+      setModalError(apiErrorMessage(error, 'Nao foi possivel marcar o pagamento.'));
     } finally {
       setSavingAlunoId(null);
     }
@@ -196,7 +188,7 @@ export default function PagamentosScreen() {
     try {
       setSavingAlunoId(aluno.id);
       const updated = await parabaService.desativarUsuarioAluno(aluno.id);
-      setAlunos((previous) => previous.map((aluno) => (aluno.id === updated.id ? updated : aluno)));
+      setAlunos((previous) => previous.map((item) => (item.id === updated.id ? updated : item)));
     } catch (error) {
       showError(apiErrorMessage(error, 'Nao foi possivel desativar o usuario.'));
     } finally {
@@ -204,162 +196,199 @@ export default function PagamentosScreen() {
     }
   };
 
+  const modalBusy = Boolean(modalAluno && savingAlunoId === modalAluno.id);
+
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>Pagamentos</Text>
-      <Text style={styles.subtitle}>Marque pagamentos do mes e acompanhe atrasos automaticamente.</Text>
+    <>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.container, { paddingTop: topPadding }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.title}>Pagamentos</Text>
+        <Text style={styles.subtitle}>Marque pagamentos do mes e acompanhe atrasos automaticamente.</Text>
 
-      <View style={styles.filterRow}>
-        <Pressable
-          style={[styles.filterButton, viewMode === 'current' && styles.filterButtonSelected]}
-          onPress={() => setViewMode('current')}
-        >
-          <Text style={[styles.filterText, viewMode === 'current' && styles.filterTextSelected]}>Mes atual</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.filterButton, viewMode === 'lastUnpaid' && styles.filterButtonSelected]}
-          onPress={() => setViewMode('lastUnpaid')}
-        >
-          <Text style={[styles.filterText, viewMode === 'lastUnpaid' && styles.filterTextSelected]}>
-            Mes passado nao pago
-          </Text>
-        </Pressable>
-      </View>
+        <View style={styles.filterRow}>
+          <Pressable
+            style={[styles.filterButton, viewMode === 'current' && styles.filterButtonSelected]}
+            onPress={() => setViewMode('current')}
+          >
+            <Text style={[styles.filterText, viewMode === 'current' && styles.filterTextSelected]}>Mes atual</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.filterButton, viewMode === 'lastUnpaid' && styles.filterButtonSelected]}
+            onPress={() => setViewMode('lastUnpaid')}
+          >
+            <Text style={[styles.filterText, viewMode === 'lastUnpaid' && styles.filterTextSelected]}>
+              Mes passado nao pago
+            </Text>
+          </Pressable>
+        </View>
 
-      <TextInput
-        style={styles.searchInput}
-        value={search}
-        onChangeText={setSearch}
-        placeholder="Buscar por nome ou apelido"
-        placeholderTextColor={colors.textMuted}
-      />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Buscar por nome ou apelido"
+          placeholderTextColor={colors.textMuted}
+        />
 
-      <View style={styles.filterRow}>
-        {PAYMENT_STATUS_FILTERS.map((filter) => {
-          const selected = statusFilter === filter.id;
-          return (
-            <Pressable
-              key={filter.id}
-              style={[styles.filterButton, selected && styles.filterButtonSelected]}
-              onPress={() => setStatusFilter(filter.id)}
-            >
-              <Text style={[styles.filterText, selected && styles.filterTextSelected]}>{filter.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={styles.sectionTitle}>
-        {viewMode === 'lastUnpaid' ? 'Pendencias do mes passado' : 'Status atual'}
-      </Text>
-      {loading ? <ActivityIndicator color={colors.primary} /> : null}
-      {!loading && visibleAlunos.length === 0 ? (
-        <Text style={styles.emptyText}>
-          {viewMode === 'lastUnpaid' ? 'Nenhum aluno pendente do mes passado.' : 'Nenhum aluno cadastrado.'}
-        </Text>
-      ) : null}
-      {visibleAlunos.map((aluno) => {
-        const status = paymentStatus(aluno, activeReference);
-        const paid = isPaidForReference(aluno, activeReference);
-        const isOverdue = status === 'atrasado';
-        const accessBlocked = Boolean(aluno.userId) && aluno.user?.ativo === false;
-        const isSaving = savingAlunoId === aluno.id;
-        const statusColor = paymentStatusColor(status, colors);
-
-        return (
-          <AppCard key={aluno.id} style={styles.paymentCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.studentName}>{aluno.nome}</Text>
-                {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
-              </View>
-              <View style={[styles.statusBadge, { borderColor: statusColor }]}>
-                <Text style={[styles.statusText, { color: statusColor }]}>{paymentStatusLabel(status)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.dayRow}>
-              <Text style={styles.dayLabel}>Dia do pagamento</Text>
-              <TextInput
-                style={styles.dayInput}
-                value={dayValueFor(aluno)}
-                onChangeText={(value) =>
-                  setDayDrafts((previous) => ({
-                    ...previous,
-                    [aluno.id]: normalizePaymentDay(value),
-                  }))
-                }
-                onEndEditing={() => void savePaymentDay(aluno)}
-                keyboardType="number-pad"
-                maxLength={2}
-                placeholder="1-31"
-                placeholderTextColor={colors.textMuted}
-                editable={!isSaving}
-              />
-            </View>
-
-            <View style={styles.actionRow}>
+        <View style={styles.filterRow}>
+          {PAYMENT_STATUS_FILTERS.map((filter) => {
+            const selected = statusFilter === filter.id;
+            return (
               <Pressable
-                disabled={isSaving}
-                style={[
-                  styles.actionButton,
-                  paid ? styles.actionButtonSecondary : styles.actionButtonPrimary,
-                  isSaving && styles.actionButtonDisabled,
-                ]}
-                onPress={() => void updatePaymentStatus(aluno, !paid, activeReference)}
+                key={filter.id}
+                style={[styles.filterButton, selected && styles.filterButtonSelected]}
+                onPress={() => setStatusFilter(filter.id)}
               >
-                {isSaving ? (
-                  <ActivityIndicator color={paid ? colors.primary : onPrimary} size="small" />
-                ) : (
-                  <Ionicons
-                    name={paid ? 'close-circle-outline' : 'checkmark-circle-outline'}
-                    size={18}
-                    color={paid ? colors.primary : onPrimary}
-                  />
-                )}
-                <Text style={[styles.actionText, paid ? styles.actionTextSecondary : styles.actionTextPrimary]}>
-                  {paid ? 'Nao pago' : 'Pago'}
-                </Text>
+                <Text style={[styles.filterText, selected && styles.filterTextSelected]}>{filter.label}</Text>
               </Pressable>
+            );
+          })}
+        </View>
 
-              {isOverdue ? (
+        <Text style={styles.sectionTitle}>
+          {viewMode === 'lastUnpaid' ? 'Pendencias do mes passado' : 'Status atual'}
+        </Text>
+        {loading ? <ActivityIndicator color={colors.primary} /> : null}
+        {!loading && visibleAlunos.length === 0 ? (
+          <Text style={styles.emptyText}>
+            {viewMode === 'lastUnpaid' ? 'Nenhum aluno pendente do mes passado.' : 'Nenhum aluno cadastrado.'}
+          </Text>
+        ) : null}
+        {visibleAlunos.map((aluno) => {
+          const status = paymentStatus(aluno, activeReference);
+          const paid = isPaidForReference(aluno, activeReference);
+          const isOverdue = status === 'atrasado';
+          const accessBlocked = Boolean(aluno.userId) && aluno.user?.ativo === false;
+          const isSaving = savingAlunoId === aluno.id;
+          const statusColor = paymentStatusColor(status, colors);
+
+          return (
+            <AppCard key={aluno.id} style={styles.paymentCard}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardTitleBox}>
+                  <Text style={styles.studentName}>{aluno.nome}</Text>
+                  {aluno.apelido ? <Text style={styles.studentMeta}>Apelido: {aluno.apelido}</Text> : null}
+                  <Text style={styles.studentMeta}>
+                    Pagamento: {aluno.dataPagamento ? `Dia ${aluno.dataPagamento}` : 'nao informado'}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { borderColor: statusColor }]}>
+                  <Text style={[styles.statusText, { color: statusColor }]}>{paymentStatusLabel(status)}</Text>
+                </View>
+              </View>
+
+              <View style={styles.actionRow}>
                 <Pressable
-                  disabled={isSaving || accessBlocked}
+                  disabled={isSaving}
                   style={[
                     styles.actionButton,
-                    styles.actionButtonDanger,
-                    (isSaving || accessBlocked) && styles.actionButtonDisabled,
+                    paid ? styles.actionButtonSecondary : styles.actionButtonPrimary,
+                    isSaving && styles.actionButtonDisabled,
                   ]}
                   onPress={() => {
-                    if (!aluno.userId) {
-                      showError('Este aluno nao possui usuario vinculado para bloquear.');
+                    if (paid) {
+                      void unmarkPaid(aluno);
                       return;
                     }
-
-                    void deactivateUser(aluno);
+                    openMarkPaidModal(aluno);
                   }}
                 >
                   {isSaving ? (
-                    <ActivityIndicator color={colors.danger} size="small" />
+                    <ActivityIndicator color={paid ? colors.primary : onPrimary} size="small" />
                   ) : (
-                    <Ionicons name="person-remove-outline" size={18} color={colors.danger} />
+                    <Ionicons
+                      name={paid ? 'close-circle-outline' : 'checkmark-circle-outline'}
+                      size={18}
+                      color={paid ? colors.primary : onPrimary}
+                    />
                   )}
-                  <Text style={[styles.actionText, styles.actionTextDanger]}>
-                    {accessBlocked ? 'Acesso bloqueado' : 'Bloquear acesso'}
+                  <Text style={[styles.actionText, paid ? styles.actionTextSecondary : styles.actionTextPrimary]}>
+                    {paid ? 'Nao pago' : 'Pago'}
                   </Text>
                 </Pressable>
-              ) : null}
-            </View>
-          </AppCard>
-        );
-      })}
 
-      <AlertError visible={errorVisible} message={errorMessage} title={errorTitle} onClose={hideError} />
-    </ScrollView>
+                {isOverdue ? (
+                  <Pressable
+                    disabled={isSaving || accessBlocked}
+                    style={[
+                      styles.actionButton,
+                      styles.actionButtonDanger,
+                      (isSaving || accessBlocked) && styles.actionButtonDisabled,
+                    ]}
+                    onPress={() => {
+                      if (!aluno.userId) {
+                        showError('Este aluno nao possui usuario vinculado para bloquear.');
+                        return;
+                      }
+
+                      void deactivateUser(aluno);
+                    }}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator color={colors.danger} size="small" />
+                    ) : (
+                      <Ionicons name="person-remove-outline" size={18} color={colors.danger} />
+                    )}
+                    <Text style={[styles.actionText, styles.actionTextDanger]}>
+                      {accessBlocked ? 'Acesso bloqueado' : 'Bloquear acesso'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </AppCard>
+          );
+        })}
+
+        <AlertError visible={errorVisible} message={errorMessage} title={errorTitle} onClose={hideError} />
+      </ScrollView>
+
+      <Modal transparent visible={Boolean(modalAluno)} animationType="fade" onRequestClose={closeModal}>
+        <Pressable style={styles.modalOverlay} onPress={closeModal}>
+          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.modalTitle}>Marcar pagamento</Text>
+            <Text style={styles.modalSubtitle}>
+              Em que dia do mes {modalAluno?.nome} pagou?
+            </Text>
+            {modalError ? <Text style={styles.modalError}>{modalError}</Text> : null}
+            <Text style={styles.modalLabel}>Dia (1 a 31)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={modalDay}
+              onChangeText={(value) => setModalDay(normalizePaymentDay(value))}
+              keyboardType="number-pad"
+              maxLength={2}
+              placeholder="Ex: 10"
+              placeholderTextColor={colors.textMuted}
+              editable={!modalBusy}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <Pressable
+                disabled={modalBusy}
+                style={[styles.modalButton, styles.modalButtonGhost, modalBusy && styles.actionButtonDisabled]}
+                onPress={closeModal}
+              >
+                <Text style={styles.modalButtonGhostText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={modalBusy}
+                style={[styles.modalButton, styles.modalButtonPrimary, modalBusy && styles.actionButtonDisabled]}
+                onPress={() => void confirmMarkPaid()}
+              >
+                {modalBusy ? (
+                  <ActivityIndicator color={onPrimary} size="small" />
+                ) : (
+                  <Text style={styles.modalButtonPrimaryText}>Confirmar</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -457,31 +486,6 @@ function createStyles(colors: ThemeColors) {
       color: colors.textMuted,
       fontSize: 12,
     },
-    dayRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: 10,
-      marginTop: 2,
-    },
-    dayLabel: {
-      color: colors.textMuted,
-      flex: 1,
-      fontSize: 12,
-      fontWeight: '700',
-    },
-    dayInput: {
-      backgroundColor: colors.inputBg,
-      borderColor: colors.border,
-      borderRadius: 10,
-      borderWidth: 1,
-      color: colors.text,
-      fontSize: 14,
-      fontWeight: '700',
-      minHeight: 36,
-      minWidth: 72,
-      paddingHorizontal: 10,
-      textAlign: 'center',
-    },
     statusBadge: {
       borderRadius: 999,
       borderWidth: 1,
@@ -534,6 +538,87 @@ function createStyles(colors: ThemeColors) {
     },
     actionTextDanger: {
       color: colors.danger,
+    },
+    modalOverlay: {
+      alignItems: 'center',
+      backgroundColor: 'rgba(0, 0, 0, 0.48)',
+      flex: 1,
+      justifyContent: 'center',
+      padding: 24,
+    },
+    modalCard: {
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      gap: 12,
+      maxWidth: 420,
+      padding: 20,
+      width: '100%',
+    },
+    modalTitle: {
+      color: colors.text,
+      fontSize: 20,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    modalSubtitle: {
+      color: colors.textMuted,
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: 'center',
+    },
+    modalError: {
+      color: colors.danger,
+      fontSize: 13,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    modalLabel: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    modalInput: {
+      backgroundColor: colors.inputBg,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '800',
+      minHeight: 52,
+      paddingHorizontal: 14,
+      textAlign: 'center',
+    },
+    modalActions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4,
+    },
+    modalButton: {
+      alignItems: 'center',
+      borderRadius: 999,
+      borderWidth: 1,
+      flex: 1,
+      justifyContent: 'center',
+      minHeight: 44,
+    },
+    modalButtonGhost: {
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+    },
+    modalButtonPrimary: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    modalButtonGhostText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    modalButtonPrimaryText: {
+      color: onPrimary,
+      fontSize: 14,
+      fontWeight: '800',
     },
   });
 }
