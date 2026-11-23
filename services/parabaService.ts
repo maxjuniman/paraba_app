@@ -518,6 +518,17 @@ export const parabaService = {
     await api.put('/devices/push-token', { token });
   },
 
+  async enviarNotificacaoBroadcast(body: {
+    titulo: string;
+    mensagem: string;
+  }): Promise<{ enviados: number; message: string }> {
+    const { data } = await api.post<
+      | { data?: { enviados: number; message: string } }
+      | { enviados: number; message: string }
+    >('/notifications/broadcast', body);
+    return unwrapData<{ enviados: number; message: string }>(data);
+  },
+
   async listarPresencas(dataPresenca: string, aulaId?: string): Promise<PresencaDia> {
     const { data } = await api.get<{ data?: PresencaDia } | PresencaDia>('/presencas', {
       params: {

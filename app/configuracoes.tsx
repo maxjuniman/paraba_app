@@ -140,6 +140,13 @@ export default function ConfiguracoesScreen() {
               subtitle="Criar usuário para outro professor"
               onPress={() => router.push('/configuracoes-cadastrar-professor')}
             />
+            <View style={styles.divider} />
+            <SettingRow
+              icon="notifications-outline"
+              label="Enviar notificacao"
+              subtitle="Aviso push para todos os aparelhos"
+              onPress={() => router.push('/configuracoes-notificacao')}
+            />
           </>
         ) : null}
         <View style={styles.divider} />

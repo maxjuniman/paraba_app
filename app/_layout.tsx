@@ -100,6 +100,7 @@ function RootNavigation() {
         <Stack.Screen name="depoimentos" />
         <Stack.Screen name="configuracoes-cadastrar-professor" />
         <Stack.Screen name="configuracoes-vinculos" />
+        <Stack.Screen name="configuracoes-notificacao" />
         <Stack.Screen name="aluno-form" />
         <Stack.Screen name="+not-found" />
       </Stack>
